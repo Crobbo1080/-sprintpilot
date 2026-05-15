@@ -1,5 +1,6 @@
 "use client";
-import React, { useMemo, useReducer, useState } from "react";
+import React, { useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { supabase } from "@/lib/supabase";
 import {
   ArrowLeft,
   BookOpen,
@@ -16,6 +17,7 @@ import {
   Lightbulb,
   Mic,
   Minus,
+  Pause,
   Play,
   Plus,
   RefreshCw,
@@ -30,12 +32,13 @@ import {
   Zap,
 } from "lucide-react";
 
-type Page = "dashboard" | "day1" | "day2" | "day3" | "day4" | "timer" | "resources" | "report";
+type Page = "dashboard" | "repository" | "day1" | "day2" | "day3" | "day4" | "participant" | "timer" | "resources" | "report";
 type DayId = "day1" | "day2" | "day3" | "day4";
 type Tab = "schedule" | "activities" | "guide" | "resources";
 type ResourceTab = "templates" | "facilitation";
 type HmwTab = "generate" | "saved" | "templates" | "guide";
 type Colour = "blue" | "green" | "orange" | "purple";
+type GuidanceLevel = "beginner" | "standard" | "expert";
 
 type Activity = {
   id: string;
@@ -50,14 +53,184 @@ type Activity = {
   guideSubtitle: string;
 };
 
+// Returns a list of "Watch for" facilitator guidance tailored to the activity.
+function getActivityWatchFors(activity: Activity) {
+  const id = activity.id;
+  const title = activity.title.toLowerCase();
+
+  const specific: Record<string, string[]> = {
+    kickoff: [
+      "Participants unclear on the sprint challenge, roles, or what will happen today",
+      "The room moving into solution mode before the problem is framed",
+      "The Decider’s role not being clearly understood",
+    ],
+
+    "ltg-questions": [
+      "Long-term goals becoming feature ideas instead of outcomes",
+      "Sprint questions being too safe, vague, or optimistic",
+      "Risks being discussed but not turned into clear questions",
+    ],
+
+    mapping: [
+      "The map becoming an internal process map rather than a user journey",
+      "Pain points being added without evidence, examples, or user context",
+      "The team trying to solve the problem while still mapping it",
+    ],
+
+    interviews: [
+      "Experts giving opinions or solutions instead of evidence and constraints",
+      "Good observations not being converted into How Might We questions",
+      "HMWs becoming hidden solutions rather than opportunity statements",
+    ],
+
+    target: [
+      "The team choosing the most interesting area rather than the most useful sprint target",
+      "Voting overriding Decider judgement without a clear rationale",
+      "The selected target being too broad to prototype and test",
+    ],
+
+    lightning: [
+      "Examples becoming long presentations instead of quick inspiration",
+      "The team copying products rather than extracting useful patterns",
+      "Useful ingredients not being captured for sketching",
+    ],
+
+    sketch: [
+      "Participants discussing ideas instead of working silently",
+      "People worrying about drawing quality rather than clarity",
+      "Final sketches needing verbal explanation to make sense",
+    ],
+
+    "art-museum": [
+      "Authors explaining or defending their sketches during silent review",
+      "The team voting for polish rather than potential",
+      "Strong ideas being missed because they are visually rough",
+    ],
+
+    "concept-presentations": [
+      "Presentations becoming pitches rather than neutral walkthroughs",
+      "Heat-map signal being ignored or over-interpreted",
+      "Weaknesses and risks not being captured before voting",
+    ],
+
+    supervote: [
+      "Votes reflecting personal preference rather than sprint questions",
+      "The Decider choice not being recorded with rationale",
+      "A wildcard idea being lost when it could strengthen the storyboard",
+    ],
+
+    "user-test-flow": [
+      "Flows becoming too detailed before the core test journey is agreed",
+      "Participants designing screens instead of mapping the user path",
+      "Flows that do not clearly test the riskiest sprint questions",
+    ],
+
+    "user-test-flow-voting": [
+      "Participants defending their own flows rather than comparing learning value",
+      "The selected flow not being specific enough to storyboard",
+      "The Decider choosing without capturing why",
+    ],
+
+    "storyboarding-part-1": [
+      "The team adding detail before the 10-panel structure is clear",
+      "Storyboard panels not following the chosen user test flow",
+      "Important concept moments not being placed into the journey",
+    ],
+
+    "storyboarding-part-2": [
+      "Missing transition states, confirmations, or hand-off moments",
+      "The storyboard becoming too large for one-day prototyping",
+      "Priority prototype screens not being marked clearly",
+    ],
+
+    planning: [
+      "Prototype scope becoming too ambitious for one day",
+      "Roles and ownership staying vague",
+      "The team forgetting which assumptions the prototype must test",
+    ],
+
+    building: [
+      "The prototype becoming too polished or too functional",
+      "Placeholder content weakening the realism of the test",
+      "Work drifting away from the storyboard and test goals",
+    ],
+
+    review: [
+      "Review focusing on polish instead of test blockers",
+      "Prototype gaps that could confuse users being left unresolved",
+      "The testing script not matching the prototype flow",
+    ],
+
+    prep: [
+      "Testing roles, devices, links, or consent steps not being ready",
+      "Questions becoming leading or explanatory",
+      "Observers being unclear on what evidence to capture",
+    ],
+
+    "testing-1": [
+      "The facilitator explaining the prototype too much",
+      "Observers capturing opinions but missing behaviour",
+      "Early confusion not being debriefed immediately after the session",
+    ],
+
+    "testing-2": [
+      "The team overreacting to one repeated issue too early",
+      "Comparisons with Session 1 not being captured clearly",
+      "The script drifting from the first session",
+    ],
+
+    "testing-3": [
+      "Emerging patterns being accepted without enough evidence",
+      "Contradictions being ignored because they complicate the story",
+      "Observers forgetting to capture exact quotes",
+    ],
+
+    "testing-4": [
+      "The team looking only for confirmation of earlier patterns",
+      "Surprising behaviour not being explored neutrally",
+      "Changing the prototype or script midstream without noting it",
+    ],
+
+    "testing-5": [
+      "Final-session evidence being treated as more important because it is recent",
+      "Weak signals being overstated in synthesis",
+      "Recommendations being formed before all sessions are reviewed",
+    ],
+
+    analysis: [
+      "The team mixing opinion, interpretation, and observed behaviour",
+      "One participant’s feedback being treated as a validated pattern",
+      "Insights not being turned into clear decisions or next steps",
+    ],
+  };
+
+  if (specific[id]) return specific[id];
+
+  if (title.includes("wrap")) {
+    return [
+      "Decisions being summarised too vaguely",
+      "Open questions not being captured before people leave",
+      "The next day or next step not being made clear",
+    ];
+  }
+
+  return [
+    "Discussion replacing individual thinking",
+    "Participants jumping to solutions too early",
+    "The expected output not being captured clearly",
+  ];
+}
+
 type Artefact = {
   id: string;
   activityKey: string;
   type: "photo" | "note";
   name: string;
   dataUrl?: string;
+  storagePath?: string;
+  publicUrl?: string;
   caption: string;
-  noteKind?: "insight" | "opportunity" | "parking" | "decision" | "risk" | "question";
+  noteKind?: "insight" | "opportunity" | "parking" | "decision" | "risk" | "question" | "recommendation";
   createdAt: number;
 };
 
@@ -68,6 +241,7 @@ const noteArtefactTypes = [
   { id: "decision", label: "Decision", icon: CheckCircle2, color: "from-purple-500 to-purple-700" },
   { id: "risk", label: "Risk", icon: Zap, color: "from-red-500 to-red-700" },
   { id: "question", label: "Question", icon: HelpCircle, color: "from-amber-500 to-amber-700" },
+  { id: "recommendation", label: "Recommendation", icon: Send, color: "from-cyan-500 to-cyan-700" },
 ] as const;
 
 function getNoteArtefactType(noteKind: Artefact["noteKind"]) {
@@ -79,6 +253,7 @@ type SprintDay = {
   label: string;
   title: string;
   subtitle: string;
+  summary: string;
   duration: string;
   colour: Colour;
   icon: React.ElementType;
@@ -87,7 +262,7 @@ type SprintDay = {
   middle: string;
   outcome: string;
   guideLabel: string;
-  schedule: Array<{ time: string; title: string; duration: string; isBreak?: boolean }>;
+  schedule: Array<{ time: string; title: string; duration: string; isBreak?: boolean; activityId?: string; activityDayId?: DayId }>;
   activities: Activity[];
 };
 
@@ -110,13 +285,26 @@ function activityKey(dayId: DayId, activityId: string) {
   return `${dayId}-${activityId}`;
 }
 
+function createClientId(prefix = "id") {
+  if (
+    typeof crypto !== "undefined" &&
+    typeof crypto.randomUUID === "function"
+  ) {
+    return crypto.randomUUID();
+  }
+
+  return `${prefix}-${Date.now()}-${Math.random()
+    .toString(36)
+    .slice(2, 10)}`;
+}
+
 function sprintProgressFillStyle(percent: number): React.CSSProperties {
   const safePercent = Math.max(0, Math.min(100, percent));
 
   return {
     width: safePercent === 0 ? "0%" : `${safePercent}%`,
     background:
-      "linear-gradient(90deg, #3b82f6 0%, #3b82f6 25%, #10b981 50%, #f97316 75%, #a855f7 100%)",
+      "linear-gradient(90deg, #3b82f6 0%, #3b82f6 18.75%, #10b981 31.25%, #10b981 43.75%, #f97316 56.25%, #f97316 68.75%, #a855f7 81.25%, #a855f7 100%)",
     backgroundSize: safePercent === 0 ? "100% 100%" : `${10000 / safePercent}% 100%`,
     backgroundRepeat: "no-repeat",
   };
@@ -124,17 +312,478 @@ function sprintProgressFillStyle(percent: number): React.CSSProperties {
 
 const day1Activities: Activity[] = [
   { id: "kickoff", title: "Sprint Kickoff", duration: "30 min", description: "Set the stage, align the team, and establish ground rules for the sprint.", participants: "All team members", materials: ["Agenda", "Sprint canvas", "Name tags"], deliverable: "Aligned team with clear sprint goals", tips: ["Start with introductions if needed", "Communicate the sprint format and expectations", "Create a parking lot for off-topic discussion"], guideTitle: "Sprint Planning & Preparation Guide", guideSubtitle: "Complete guide for setting up and preparing your design sprint for maximum success" },
-  { id: "mapping", title: "Problem Mapping", duration: "60 min", description: "Create a visual map of the user journey to identify key problems and opportunities.", participants: "All team members", materials: ["Large sheets of paper", "Sticky notes", "Markers", "Timer"], deliverable: "Complete user journey map with pain points identified", tips: ["Focus on the user journey, not internal processes", "Separate assumptions from known facts", "Keep the map visible throughout the sprint"], guideTitle: "Problem Mapping Facilitation Guide", guideSubtitle: "How to facilitate effective problem mapping sessions to understand the challenge landscape" },
-  { id: "interviews", title: "Expert Interviews", duration: "90 min", description: "Gather insight from people who understand the problem, users, operations, or constraints.", participants: "Experts + sprint team", materials: ["Interview questions", "Note sheets", "Timer"], deliverable: "Key insights and assumptions captured", tips: ["Ask open questions", "Keep interviews short and focused", "Capture direct quotes where useful"], guideTitle: "Expert Interview Facilitation Guide", guideSubtitle: "How to conduct effective expert interviews to gather insights and understand the problem deeply" },
-  { id: "hmw", title: "How Might We", duration: "45 min", description: "Transform problems, insights, and opportunities into How Might We questions.", participants: "All team members", materials: ["Sticky notes", "Markers", "Timer"], deliverable: "50+ How Might We questions", tips: ["Start questions with ‘How might we…’", "One idea per sticky note", "Build on others’ ideas", "Go for quantity before quality"], guideTitle: "How Might We Workshop Guide", guideSubtitle: "Transform problems into opportunities with structured HMW question generation" },
-  { id: "target", title: "Target Selection", duration: "45 min", description: "Choose the most important challenge or opportunity to focus on for the sprint.", participants: "All team members", materials: ["Voting dots", "Decision matrix", "Timer"], deliverable: "One target problem or opportunity selected", tips: ["Consider impact vs effort", "The Decider has the final say", "Choose something that can be prototyped and tested"], guideTitle: "Voting & Decision Framework", guideSubtitle: "Structured approach for making decisions and selecting targets" },
+  {
+    id: "ltg-questions",
+    title: "Long Term Goal and Sprint Questions",
+    duration: "55 min",
+    description:
+      "The team individually creates long-term goals and pessimistic sprint questions to clarify what success looks like and what risks could prevent it.",
+    participants: "All team members",
+    materials: ["Sticky notes", "Markers", "Timer"],
+    deliverable:
+      "A set of long-term goals and critical sprint questions that frame success and risk for the sprint.",
+    tips: [
+      "Ask participants to work individually before sharing",
+      "Encourage measurable long-term goals where possible",
+      "Frame sprint questions pessimistically to expose real risks",
+      "Capture both goals and questions visibly for the rest of the sprint",
+    ],
+    guideTitle: "Long Term Goal and Sprint Questions",
+    guideSubtitle:
+      "How to define long-term success and turn uncertainty into useful sprint questions",
+  },
+  { id: "mapping", title: "Problem Mapping", duration: "35 min", description: "This is essential to create a shared mental model. It maps the current, often flawed, state of affairs. It forces the team to agree on a specific target area.", participants: "All team members", materials: ["Large sheets of paper", "Sticky notes", "Markers", "Timer"], deliverable: "Complete user journey map with pain points identified", tips: ["Focus on the user journey, not internal processes", "Separate assumptions from known facts", "Keep the map visible throughout the sprint"], guideTitle: "Problem Mapping Facilitation Guide", guideSubtitle: "How to facilitate effective problem mapping sessions to understand the challenge landscape" },
+  {
+    id: "interviews",
+    title: "Expert Interviews & How Might We",
+    duration: "45 min",
+    description:
+      "Gather insight from people who understand the problem, users, operations, or constraints, then immediately convert the strongest observations into How Might We opportunities.",
+    participants: "Experts + sprint team",
+    materials: ["Interview questions", "Note sheets", "Sticky notes", "Markers", "Timer"],
+    deliverable: "Key insights, assumptions, constraints, and How Might We questions captured",
+    tips: [
+      "Ask open questions and listen for evidence, contradictions, constraints, and assumptions",
+      "Capture direct quotes and important observations where useful",
+      "Turn useful insights into How Might We questions while they are fresh",
+      "Start each opportunity with ‘How might we…’ and avoid embedding solutions too early",
+      "Cluster related HMWs so they can support target selection later",
+    ],
+    guideTitle: "Expert Interview Facilitation Guide",
+    guideSubtitle: "How to gather expert insight and convert it into useful How Might We opportunities",
+  },
+  { id: "target", title: "Target Selection", duration: "30 min", description: "Choose the most important challenge or opportunity to focus on for the sprint.", participants: "All team members", materials: ["Voting dots", "Decision matrix", "Timer"], deliverable: "One target problem or opportunity selected", tips: ["Consider impact vs effort", "The Decider has the final say", "Choose something that can be prototyped and tested"], guideTitle: "Voting & Decision Framework", guideSubtitle: "Structured approach for making decisions and selecting targets" },
+  {
+    id: "lightning",
+    title: "Lightning Demos",
+    duration: "35 min",
+    description: "Quick presentations of existing solutions and inspiration from other industries to gather useful patterns before sketching.",
+    participants: "All team members",
+    materials: ["Examples", "Sticky notes", "Markers", "Timer"],
+    deliverable: "Collection of inspiring solutions, patterns, and reusable ingredients",
+    tips: ["Focus on useful patterns, not copying whole products", "Keep examples short", "Capture the ingredient that makes each example useful", "Look outside your sector for inspiration"],
+    guideTitle: "Lightning Demos & Sketching Guide",
+    guideSubtitle: "How to inspire ideas and move into structured sketching",
+  },
+  {
+    id: "sketch",
+    title: "Four-Step Sketch (Break included)",
+    duration: "95 min",
+    description: "Individual sketching exercise to generate detailed solution ideas using notes, ideas, Crazy 8s, and a final self-explanatory sketch, with a short break included in the timebox.",
+    participants: "All team members",
+    materials: ["Paper", "Markers", "Timer", "Sketching templates"],
+    deliverable: "Individual solution sketches from each team member",
+    tips: ["Work silently", "Prioritise clarity over drawing quality", "Make sketches understandable without a pitch", "Use annotations and steps", "Use the included break to reset before finishing the final sketch"],
+    guideTitle: "Lightning Demos & Sketching Guide",
+    guideSubtitle: "How to run silent sketching and produce self-explanatory concepts",
+  },
+  {
+    id: "wrap-up",
+    title: "Day 1 Wrap-up",
+    duration: "30 min",
+    description: "Recap key decisions, confirm the selected target, capture open questions, and preview Day 2.",
+    participants: "All team members",
+    materials: ["Notes", "Sprint wall", "Timer"],
+    deliverable: "Confirmed Day 1 decisions, target, and open questions",
+    tips: [
+      "Summarise what has been decided",
+      "Confirm the target clearly",
+      "Capture any risks or unanswered questions",
+      "Preview what happens on Day 2"
+    ],
+    guideTitle: "Day Opening & Closing Scripts",
+    guideSubtitle: "How to close the day clearly and maintain momentum into Day 2",
+  },
+];
+
+const day2Activities: Activity[] = [
+  {
+    id: "kickoff",
+    title: "Day 2 Welcome Back",
+    duration: "15 min",
+    description: "Recap the Day 1 target, explain how the team will move from problem understanding to solution ideas, and set expectations for silent sketching and decision-making.",
+    participants: "All team members",
+    materials: ["Sprint target", "Day 1 outputs", "Timer"],
+    deliverable: "Shared understanding of the Day 2 goal and decision flow",
+    tips: ["Keep the recap tight", "Restate the selected target", "Explain that sketches will be judged on clarity and potential, not drawing skill", "Remind the Decider they will make the final call"],
+    guideTitle: "Day Opening & Closing Scripts",
+    guideSubtitle: "Ready-to-use wording for opening each sprint day and setting expectations",
+  },
+  {
+    id: "art-museum",
+    title: "Art Gallery",
+    duration: "30 min",
+    description: "Display solution sketches silently so the team can review ideas without pitches, discussion, or hierarchy influencing judgement.",
+    participants: "All team members",
+    materials: ["Completed sketches", "Wall space", "Tape", "Voting dots"],
+    deliverable: "All solution sketches reviewed silently and ready for critique",
+    tips: ["Keep the room silent", "Let sketches speak for themselves", "Encourage people to look for strengths and patterns", "Do not allow authors to explain their work yet"],
+    guideTitle: "Voting & Decision Framework",
+    guideSubtitle: "How to review sketches, identify signal, and prepare for decision-making",
+  },
+  {
+    id: "concept-presentations",
+    title: "Concept Presentations",
+    duration: "25 min",
+    description:
+      "A single presenter, usually the facilitator, walks the team through the heat map results and the strongest areas of interest before voting begins.",
+    participants: "Facilitator + full sprint team",
+    materials: ["Displayed sketches", "Heat map dots", "Timer", "Sprint questions"],
+    deliverable: "Shared understanding of the strongest concept areas before the straw poll and Decider vote",
+    tips: [
+      "Use one neutral presenter to avoid authors pitching their own ideas",
+      "Focus on the parts of each concept that attracted heat map attention",
+      "Keep the walkthrough concise and evidence-based",
+      "Connect promising ideas back to the Sprint Questions",
+    ],
+    guideTitle: "Voting & Decision Framework",
+    guideSubtitle: "How to present heat map signal before structured voting and Decider choice",
+  },
+  {
+    id: "supervote",
+    title: "Straw Poll & Decider Vote",
+    duration: "25 min",
+    description:
+      "Use a structured straw poll to surface the team’s preferred concept, then give the Decider the final starred votes based on which idea best answers the Sprint Questions.",
+    participants: "Full sprint team + Decider",
+    materials: ["Displayed sketches", "Large voting dots", "Starred Decider dots", "Markers", "Sprint Questions", "Timer"],
+    deliverable: "Winning concept selected for prototyping with clear team signal and Decider rationale",
+    tips: [
+      "Give each person one large dot for the straw poll and ask them to add their initials",
+      "Ask participants to vote for the concept they believe best answers the Sprint Questions",
+      "Give the Decider two large starred dots for the final decision",
+      "If the Decider needs discussion time, combine this with a short coffee break",
+      "Capture the final rationale and any risks to test during prototyping",
+    ],
+    guideTitle: "Voting & Decision Framework",
+    guideSubtitle: "How to move from team signal to Decider-led concept selection",
+  },
+  {
+    id: "user-test-flow",
+    title: "User Test Flow",
+    duration: "25 min",
+    description:
+      "Create rough end-to-end user test flows individually using a 123/ABC wall matrix so the team can compare different approaches before storyboarding.",
+    participants: "All team members",
+    materials: ["123/ABC wall matrix", "Post-it notes", "Markers", "Timer"],
+    deliverable: "Individual rough user test flows using six post-its per participant",
+    tips: [
+      "Create a clear 123/ABC wall matrix before the activity starts",
+      "Give each participant six post-its only to keep flows focused",
+      "Ask participants to work individually before any discussion",
+      "Focus on the user journey rather than detailed screens or interface elements",
+    ],
+    guideTitle: "User Test Flow & Storyboarding Guide",
+    guideSubtitle: "How to define the test journey before building the storyboard",
+  },
+  {
+    id: "user-test-flow-voting",
+    title: "User Test Flow Presentations & Voting",
+    duration: "30 min",
+    description:
+      "Participants quickly present their proposed user test flows, then the team votes and the Decider selects the primary flow plus a wildcard option.",
+    participants: "All team members + Decider",
+    materials: ["123/ABC wall matrix", "Voting dots", "Decider dots", "Markers", "Timer"],
+    deliverable: "Selected user test flow and wildcard option ready for storyboarding",
+    tips: [
+      "Keep each presentation short and focused on the flow",
+      "Give each person one dot to vote for their preferred user test flow",
+      "Ask people to vote based on what best answers the Sprint Questions",
+      "Give the Decider two dots to choose the main flow and one wildcard direction",
+      "Capture the rationale so the team understands what is moving into storyboarding",
+    ],
+    guideTitle: "Voting & Decision Framework",
+    guideSubtitle: "How to move from several user test flow options into one Decider-led storyboard direction",
+  },
+  {
+    id: "storyboarding-part-1",
+    title: "Storyboarding Part 1",
+    duration: "55 min",
+    description:
+      "Create the first version of the storyboard by setting up 10 panels, aligning the chosen user test flow, walking through the rough story, and moving concept sketches into the flow to fill the major gaps.",
+    participants: "Full sprint team",
+    materials: ["Storyboard panels", "Selected user test flow post-its", "Concept sketches", "Markers", "Sticky notes", "Timer"],
+    deliverable: "Rough storyboard structure with the chosen user test flow and key concept sketches placed into the panels",
+    tips: [
+      "First, create 10 panels and align the chosen user test flow post-its into the storyboard",
+      "Walk through the rough story before adding too much detail",
+      "Move in sketches from concepts to fill gaps and strengthen the flow",
+      "Start discussing the target test group while shaping the storyboard",
+      "Keep this pass focused on structure, sequence, and major moments rather than polish",
+    ],
+    guideTitle: "User Test Flow & Storyboarding Guide",
+    guideSubtitle: "How to build the first-pass storyboard from the selected user test flow",
+  },
+  {
+    id: "storyboarding-part-2",
+    title: "Storyboarding Part 2",
+    duration: "55 min",
+    description:
+      "Complete the storyboard by filling in all remaining details, adding important in-between states, walking through the finished story, and marking the highest-priority screens for prototyping.",
+    participants: "Full sprint team",
+    materials: ["Storyboard panels", "Concept sketches", "Markers", "Sticky notes", "Timer"],
+    deliverable: "Finished storyboard with priority prototype screens clearly marked",
+    tips: [
+      "Fill in all important details needed for the prototype team to build confidently",
+      "Pay attention to in-between states, transitions, confirmations, and hand-offs",
+      "Walk through the finished storyboard from the user’s point of view",
+      "Mark high-priority screens that must be built if time becomes tight",
+      "Capture any remaining assumptions or prototype risks before moving on",
+    ],
+    guideTitle: "User Test Flow & Storyboarding Guide",
+    guideSubtitle: "How to complete the storyboard and prioritise the prototype screens",
+  },
+  {
+    id: "day2-wrap",
+    title: "Day 2 Wrap-up",
+    duration: "15 min",
+    description:
+      "Review everything achieved across the first two days, explain how the team arrived at the solution to test, and prepare everyone for prototyping and user testing.",
+    participants: "All team members",
+    materials: ["Sprint wall", "Selected user test flow", "Storyboard", "Concept outputs", "Timer"],
+    deliverable: "Shared understanding of the chosen solution, storyboard, and next steps for prototyping and testing",
+    tips: [
+      "Recap the journey from challenge to selected solution",
+      "Connect the storyboard back to the Sprint Questions",
+      "Explain what happens over the next two days: prototyping then user testing",
+      "Confirm any preparation needed before Day 3 begins",
+    ],
+    guideTitle: "Day Opening & Closing Scripts",
+    guideSubtitle: "How to close Day 2 clearly and set up the transition into prototyping and testing",
+  },
+];
+
+const day3Activities: Activity[] = [
+  {
+    id: "planning",
+    title: "Prototype Planning",
+    duration: "45 min",
+    description: "Plan the prototype structure, fidelity, roles, tools, and responsibilities before building starts.",
+    participants: "Prototype team",
+    materials: ["Prototype plan", "Role list", "Storyboard", "Timer"],
+    deliverable: "Prototype plan with clear responsibilities",
+    tips: ["Assign a stitcher or integrator", "Use realistic content", "Decide what can be faked", "Protect review time before the end of the day"],
+    guideTitle: "Prototyping Guide",
+    guideSubtitle: "How to choose fidelity, assign roles, and avoid overbuilding",
+  },
+  {
+    id: "building",
+    title: "Prototype Building",
+    duration: "5 hours",
+    description: "Build a realistic-enough prototype that users can react to during testing.",
+    participants: "Prototype team",
+    materials: ["Prototype tools", "Assets", "Content", "Storyboard", "Timer"],
+    deliverable: "Realistic prototype ready for review",
+    tips: ["Build the illusion, not the system", "Avoid perfectionism", "Keep checking against the test question", "Use realistic names, content, and data"],
+    guideTitle: "Prototyping Guide",
+    guideSubtitle: "How to build a realistic prototype in one day",
+  },
+  {
+    id: "review",
+    title: "Prototype Review",
+    duration: "45 min",
+    description: "Review the prototype against the storyboard and test goals, then fix anything that would block a useful user test.",
+    participants: "Prototype team + facilitator",
+    materials: ["Prototype", "Storyboard", "Testing script", "Issue list"],
+    deliverable: "Prototype checked and ready for Day 4 testing",
+    tips: ["Run through the prototype as a user", "Fix blockers before polish", "Check that the test script matches the prototype", "Capture remaining risks"],
+    guideTitle: "User Testing Guide",
+    guideSubtitle: "How to prepare the prototype and test flow before user sessions",
+  },
+];
+
+const day4Activities: Activity[] = [
+  {
+    id: "prep",
+    title: "Test Preparation",
+    duration: "75 min",
+    description: "Prepare for user testing sessions — scripts, logistics, prototype access, consent, note-taking, and roles.",
+    participants: "Facilitator + testing team",
+    materials: ["Testing script", "Prototype", "Consent wording", "Observation sheet"],
+    deliverable: "Ready testing environment and materials",
+    tips: ["Check links and devices", "Assign interviewer and note-taker", "Use neutral wording", "Prepare backup plans"],
+    guideTitle: "User Testing Guide",
+    guideSubtitle: "How to prepare scripts, roles, and logistics for user testing",
+  },
+  {
+    id: "testing-1",
+    title: "Session 1",
+    duration: "45 min",
+    description: "Run the first individual user test with the prototype and capture behaviour, reactions, confusion, and evidence.",
+    participants: "User + interviewer + observers",
+    materials: ["Prototype", "Testing script", "Observation notes"],
+    deliverable: "Session 1 observations and quotes captured",
+    tips: ["Start neutrally", "Watch behaviour more than opinion", "Do not explain too much", "Debrief immediately after"],
+    guideTitle: "User Testing Guide",
+    guideSubtitle: "How to run neutral user testing sessions and capture evidence",
+  },
+  {
+    id: "testing-2",
+    title: "Session 2",
+    duration: "45 min",
+    description: "Run the second individual user test and look for early repeated patterns or contradictions.",
+    participants: "User + interviewer + observers",
+    materials: ["Prototype", "Testing script", "Observation notes"],
+    deliverable: "Session 2 observations and emerging signals captured",
+    tips: ["Keep the script consistent", "Avoid leading questions", "Capture exact quotes", "Note behaviour patterns"],
+    guideTitle: "User Testing Guide",
+    guideSubtitle: "How to run neutral user testing sessions and capture evidence",
+  },
+  {
+    id: "testing-3",
+    title: "Session 3",
+    duration: "45 min",
+    description: "Run the third individual user test and continue capturing evidence against the sprint questions.",
+    participants: "User + interviewer + observers",
+    materials: ["Prototype", "Testing script", "Observation notes"],
+    deliverable: "Session 3 observations and evidence captured",
+    tips: ["Keep observers quiet", "Watch for hesitation", "Separate evidence from interpretation", "Debrief before moving on"],
+    guideTitle: "User Testing Guide",
+    guideSubtitle: "How to run neutral user testing sessions and capture evidence",
+  },
+  {
+    id: "testing-4",
+    title: "Session 4",
+    duration: "45 min",
+    description: "Run the fourth individual user test and check whether earlier patterns continue or weaken.",
+    participants: "User + interviewer + observers",
+    materials: ["Prototype", "Testing script", "Observation notes"],
+    deliverable: "Session 4 observations and pattern checks captured",
+    tips: ["Compare against earlier signals", "Stay neutral", "Capture surprises", "Avoid changing the prototype mid-test unless essential"],
+    guideTitle: "User Testing Guide",
+    guideSubtitle: "How to run neutral user testing sessions and capture evidence",
+  },
+  {
+    id: "testing-5",
+    title: "Session 5",
+    duration: "45 min",
+    description: "Run the final individual user test and capture final evidence before synthesis.",
+    participants: "User + interviewer + observers",
+    materials: ["Prototype", "Testing script", "Observation notes"],
+    deliverable: "Session 5 observations and final testing evidence captured",
+    tips: ["Do not over-correct based on one user", "Capture final quotes", "Note repeated themes", "Prepare for synthesis"],
+    guideTitle: "User Testing Guide",
+    guideSubtitle: "How to run neutral user testing sessions and capture evidence",
+  },
+  {
+    id: "analysis",
+    title: "Results Analysis",
+    duration: "60 min",
+    description: "Look for patterns, validated assumptions, warning signs, and next steps from the user testing evidence.",
+    participants: "Full sprint team",
+    materials: ["Testing notes", "Prototype", "Insight board", "Markers"],
+    deliverable: "Validated learning and recommended next actions",
+    tips: ["Group observations into patterns", "Separate behaviour from opinion", "Name confidence levels", "Turn findings into decisions or next steps"],
+    guideTitle: "Synthesis & Insight Capture",
+    guideSubtitle: "How to turn testing observations into evidence, decisions, and next steps",
+  },
 ];
 
 const sprintDays: SprintDay[] = [
-  { id: "day1", label: "Day 1", title: "Day 1: Understand & Define", subtitle: "Map the problem, interview experts, and define the challenge", duration: "6-8 hours", colour: "blue", icon: Target, goal: "Define the right problem to solve", middleLabel: "Team", middle: "5-7 people including Decider", outcome: "Target problem selected", guideLabel: "Resources", schedule: [{ time: "9:00 AM", title: "Sprint Kickoff", duration: "30 min" }, { time: "9:30 AM", title: "Problem Mapping", duration: "60 min" }, { time: "10:30 AM", title: "Break", duration: "15 min", isBreak: true }, { time: "10:45 AM", title: "Expert Interviews", duration: "90 min" }, { time: "12:15 PM", title: "Lunch", duration: "60 min", isBreak: true }, { time: "1:15 PM", title: "How Might We", duration: "45 min" }, { time: "2:00 PM", title: "Break", duration: "15 min", isBreak: true }, { time: "2:15 PM", title: "Target Selection", duration: "45 min" }, { time: "3:00 PM", title: "Day 1 Wrap-up", duration: "30 min" }], activities: day1Activities },
-  { id: "day2", label: "Day 2", title: "Day 2: Ideate & Decide", subtitle: "Generate solutions and decide on the best approach", duration: "6-8 hours", colour: "green", icon: Lightbulb, goal: "Select the best solution to prototype", middleLabel: "Focus", middle: "Individual work then group decisions", outcome: "Winning solution ready to prototype", guideLabel: "Sketching Guide", schedule: [{ time: "9:00 AM", title: "Day 2 Kickoff", duration: "15 min" }, { time: "9:15 AM", title: "Lightning Demos", duration: "45 min" }, { time: "10:15 AM", title: "Four-Step Sketch", duration: "90 min" }, { time: "12:00 PM", title: "Lunch", duration: "60 min", isBreak: true }, { time: "1:00 PM", title: "Art Museum", duration: "30 min" }, { time: "1:30 PM", title: "Speed Critique", duration: "60 min" }, { time: "3:00 PM", title: "Supervote", duration: "30 min" }], activities: [{ ...day1Activities[0], id: "lightning", title: "Lightning Demos", duration: "45 min", description: "Quick presentations of existing solutions and inspiration from other industries.", deliverable: "Collection of inspiring solutions and patterns" }, { ...day1Activities[3], id: "sketch", title: "Four-Step Sketch", duration: "90 min", description: "Individual sketching exercise to generate detailed solution ideas.", deliverable: "Individual solution sketches from each team member" }, { ...day1Activities[4], id: "supervote", title: "Supervote", duration: "30 min", description: "The Decider makes the final choice on what concept to prototype.", deliverable: "Winning concept selected" }] },
-  { id: "day3", label: "Day 3", title: "Day 3: Prototype", subtitle: "Build a realistic prototype of your solution", duration: "6-8 hours", colour: "orange", icon: Wrench, goal: "Create a testable prototype", middleLabel: "Approach", middle: "Divide and conquer with roles", outcome: "Ready-to-test prototype", guideLabel: "Prototyping Guide", schedule: [{ time: "9:00 AM", title: "Day 3 Kickoff", duration: "15 min" }, { time: "9:15 AM", title: "Storyboard Creation", duration: "60 min" }, { time: "10:30 AM", title: "Prototype Planning", duration: "45 min" }, { time: "11:15 AM", title: "Prototype Building", duration: "5 hours" }, { time: "4:15 PM", title: "Prototype Review", duration: "45 min" }], activities: [{ ...day1Activities[1], id: "storyboard", title: "Storyboard Creation", duration: "60 min", description: "Create a step-by-step storyboard of the user experience.", deliverable: "Complete user journey storyboard" }, { ...day1Activities[4], id: "planning", title: "Prototype Planning", duration: "45 min", description: "Plan the prototype structure and assign responsibilities.", deliverable: "Prototype plan with clear responsibilities" }, { ...day1Activities[2], id: "building", title: "Prototype Building", duration: "5 hours", description: "Build a realistic-enough prototype that users can react to.", deliverable: "Realistic prototype ready for review" }] },
-  { id: "day4", label: "Day 4", title: "Day 4: Test & Validate", subtitle: "Test with real users and gather feedback", duration: "4-6 hours", colour: "purple", icon: Zap, goal: "Validate solution with real users", middleLabel: "Users", middle: "5 individual testing sessions", outcome: "Validated insights & next steps", guideLabel: "Testing Guide", schedule: [{ time: "9:00 AM", title: "Day 4 Kickoff", duration: "15 min" }, { time: "9:15 AM", title: "Test Preparation", duration: "45 min" }, { time: "10:00 AM", title: "User Testing - Session 1", duration: "30 min" }, { time: "10:45 AM", title: "User Testing - Session 2", duration: "30 min" }, { time: "11:30 AM", title: "User Testing - Session 3", duration: "30 min" }, { time: "1:00 PM", title: "User Testing - Session 4", duration: "30 min" }, { time: "1:45 PM", title: "User Testing - Session 5", duration: "30 min" }, { time: "2:30 PM", title: "Results Analysis", duration: "60 min" }], activities: [{ ...day1Activities[0], id: "prep", title: "Test Preparation", duration: "45 min", description: "Prepare for user testing sessions — scripts, logistics, and roles.", deliverable: "Ready testing environment and materials" }, { ...day1Activities[2], id: "testing", title: "User Testing Sessions", duration: "3 hours", description: "Conduct 5 individual user testing sessions with your prototype.", deliverable: "User feedback and behavioural observations" }, { ...day1Activities[1], id: "analysis", title: "Results Analysis", duration: "60 min", description: "Look for patterns, validated assumptions, warning signs, and next steps.", deliverable: "Validated learning and recommended next actions" }] },
+  {
+    id: "day1",
+    label: "Day 1",
+    title: "Day 1: Define & Create",
+    subtitle: "Define the challenge, surface opportunities, and create solution concepts",
+    summary: "Frame the challenge, surface risks and opportunities, gather expert insight, and generate solution concepts that can move into decision-making.",
+    duration: "6-8 hours",
+    colour: "blue",
+    icon: Target,
+    goal: "Frame the challenge and generate strong solution directions",
+    middleLabel: "Team",
+    middle: "5-7 people including Decider",
+    outcome: "Challenge framed and solution concepts created",
+    guideLabel: "Define & Create Guide",
+    schedule: [
+      { time: "9:30 AM", title: "Sprint Kickoff", duration: "30 min", activityId: "kickoff" },
+      { time: "10:00 AM", title: "Problem Mapping", duration: "35 min", activityId: "mapping" },
+      { time: "10:35 AM", title: "Expert Interviews & HMWs", duration: "45 min", activityId: "interviews" },
+      { time: "11:20 AM", title: "Break", duration: "15 min", isBreak: true },
+      { time: "11:35 AM", title: "Long Term Goal and Sprint Questions", duration: "55 min", activityId: "ltg-questions" },
+      { time: "12:30 PM", title: "Target Selection", duration: "30 min", activityId: "target" },
+      { time: "1:00 PM", title: "Lunch", duration: "45 min", isBreak: true },
+      { time: "1:45 PM", title: "Lightning Demos", duration: "30 min", activityId: "lightning" },
+      { time: "2:15 PM", title: "Four-Step Sketch (Break included)", duration: "95 min", activityId: "sketch" },
+      { time: "3:50 PM", title: "Day 1 Wrap-up", duration: "30 min", activityId: "wrap-up" },
+    ],
+    activities: day1Activities,
+  },
+  {
+    id: "day2",
+    label: "Day 2",
+    title: "Day 2: Decide & Storyboard",
+    subtitle: "Choose the strongest direction and turn it into a testable storyboard",
+    summary: "Review solution concepts, select the strongest direction, define the user test flow, and build a storyboard ready for prototyping.",
+    duration: "6-8 hours",
+    colour: "green",
+    icon: Lightbulb,
+    goal: "Select the solution and define the user test flow",
+    middleLabel: "Focus",
+    middle: "Group decision-making then storyboard detail",
+    outcome: "Storyboard ready for prototyping",
+    guideLabel: "Decision & Storyboard Guide",
+    schedule: [
+      { time: "9:30 AM", title: "Day 2 Welcome Back", duration: "15 min", activityId: "kickoff" },
+      { time: "9:45 AM", title: "Art Gallery", duration: "30 min", activityId: "art-museum" },
+      { time: "10:15 AM", title: "Concept Presentations", duration: "25 min", activityId: "concept-presentations" },
+      { time: "10:40 AM", title: "Straw Poll & Decider Vote", duration: "25 min", activityId: "supervote" },
+      { time: "11:05 AM", title: "User Test Flow", duration: "25 min", activityId: "user-test-flow" },
+      { time: "11:30 AM", title: "User Test Flow Presentations & Voting", duration: "30 min", activityId: "user-test-flow-voting" },
+      { time: "12:00 PM", title: "Lunch", duration: "60 min", isBreak: true },
+      { time: "1:00 PM", title: "Storyboarding Part 1", duration: "55 min", activityId: "storyboarding-part-1" },
+      { time: "1:55 PM", title: "Break", duration: "15 min", isBreak: true },
+      { time: "2:10 PM", title: "Storyboarding Part 2", duration: "55 min", activityId: "storyboarding-part-2" },
+      { time: "3:05 PM", title: "Day 2 Wrap-up", duration: "15 min", activityId: "day2-wrap" },
+    ],
+    activities: day2Activities,
+  },
+  {
+    id: "day3",
+    label: "Day 3",
+    title: "Day 3: Prototype",
+    subtitle: "Build a realistic prototype of your solution",
+    summary: "Plan and build a realistic prototype focused on the critical journey that users will test on Day 4.",
+    duration: "6-8 hours",
+    colour: "orange",
+    icon: Wrench,
+    goal: "Create a testable prototype",
+    middleLabel: "Approach",
+    middle: "Divide and conquer with roles",
+    outcome: "Ready-to-test prototype",
+    guideLabel: "Prototyping Guide",
+    schedule: [
+      { time: "9:00 AM", title: "Prototype Planning", duration: "45 min", activityId: "planning" },
+      { time: "9:45 AM", title: "Prototype Building", duration: "5 hours", activityId: "building" },
+      { time: "2:45 PM", title: "Prototype Review", duration: "45 min", activityId: "review" },
+    ],
+    activities: day3Activities,
+  },
+  {
+    id: "day4",
+    label: "Day 4",
+    title: "Day 4: Test & Validate",
+    subtitle: "Test with real users and gather feedback",
+    summary: "Run user testing sessions, capture behavioural evidence, identify patterns, and define validated next steps and recommendations.",
+    duration: "4-6 hours",
+    colour: "purple",
+    icon: Zap,
+    goal: "Validate solution with real users",
+    middleLabel: "Users",
+    middle: "5 individual testing sessions",
+    outcome: "Validated insights & next steps",
+    guideLabel: "Testing Guide",
+    schedule: [
+      { time: "9:00 AM", title: "Test Preparation", duration: "75 min", activityId: "prep" },
+      { time: "10:15 AM", title: "Session 1", duration: "45 min", activityId: "testing-1" },
+      { time: "11:15 AM", title: "Session 2", duration: "45 min", activityId: "testing-2" },
+      { time: "12:15 PM", title: "Session 3", duration: "45 min", activityId: "testing-3" },
+      { time: "1:00 PM", title: "Lunch", duration: "60 min", isBreak: true },
+      { time: "2:15 PM", title: "Session 4", duration: "45 min", activityId: "testing-4" },
+      { time: "3:15 PM", title: "Session 5", duration: "45 min", activityId: "testing-5" },
+      { time: "4:00 PM", title: "Results Analysis", duration: "60 min", activityId: "analysis" },
+    ],
+    activities: day4Activities,
+  },
 ];
 
 type ResourceGuide = {
@@ -254,6 +903,24 @@ const resourceCategories: Array<{ title: string; description: string; guides: Re
         time: "45 min",
         kind: "Guide",
         icon: HelpCircle,
+      },
+      {
+        title: "Long Term Goal and Sprint Questions",
+        description: "How to define long-term success and turn uncertainty into useful sprint questions before target selection.",
+        stage: "Day 1",
+        audience: "Full sprint team",
+        time: "55 min",
+        kind: "Guide",
+        icon: Target,
+      },
+      {
+        title: "User Test Flow & Storyboarding Guide",
+        description: "How to select the user test flow, turn it into storyboard panels, and prioritise screens for prototyping.",
+        stage: "Day 2",
+        audience: "Full sprint team",
+        time: "2-3 hours",
+        kind: "Guide",
+        icon: Wrench,
       },
       {
         title: "Lightning Demos & Sketching Guide",
@@ -403,7 +1070,16 @@ function allResourceGuides() {
 
 function getGuideByTitle(title: string) {
   const aliases: Record<string, string> = {
+    // Day 1 mappings and related
     "Sprint Planning & Preparation Guide": "Sprint Setup & Logistics Guide",
+    "How to frame long-term outcomes and identify the key risks the sprint needs to answer": "Long Term Goal and Sprint Questions",
+    "How to define long-term success and turn uncertainty into useful sprint questions": "Long Term Goal and Sprint Questions",
+    "How to define the user journey that the storyboard and prototype will need to support": "User Test Flow & Storyboarding Guide",
+    "How to create the first-pass storyboard structure before filling in detailed prototype states": "User Test Flow & Storyboarding Guide",
+    "How to complete the storyboard and identify the most important screens for prototyping": "User Test Flow & Storyboarding Guide",
+    "How to define the test journey before building the storyboard": "User Test Flow & Storyboarding Guide",
+    "How to build the first-pass storyboard from the selected user test flow": "User Test Flow & Storyboarding Guide",
+    "How to complete the storyboard and prioritise the prototype screens": "User Test Flow & Storyboarding Guide",
     "Problem Mapping Facilitation Guide": "Problem Mapping Facilitation Guide",
     "Expert Interview Facilitation Guide": "Expert Interview Guide",
     "How Might We Workshop Guide": "How Might We Workshop Guide",
@@ -419,6 +1095,42 @@ function getGuideByTitle(title: string) {
 
   const resolvedTitle = aliases[title] ?? title;
   return allResourceGuides().find((guide) => guide.title === resolvedTitle) ?? null;
+}
+
+function getDayAndActivityFromKey(key: string) {
+  for (const day of sprintDays) {
+    for (const activity of day.activities) {
+      if (activityKey(day.id, activity.id) === key) return { day, activity };
+    }
+  }
+  return null;
+}
+
+function getActivityForScheduleItem(day: SprintDay, item: SprintDay["schedule"][number]) {
+  if (item.isBreak) return null;
+
+  if (item.activityId) {
+    const sourceDay = item.activityDayId
+      ? sprintDays.find((candidate) => candidate.id === item.activityDayId)
+      : day;
+
+    const activity = sourceDay?.activities.find((candidate) => candidate.id === item.activityId);
+    if (activity && sourceDay) return { day: sourceDay, activity };
+
+    const fallback = sprintDays
+      .flatMap((candidateDay) => candidateDay.activities.map((candidateActivity) => ({ day: candidateDay, activity: candidateActivity })))
+      .find((candidate) => candidate.activity.id === item.activityId);
+
+    if (fallback) return fallback;
+  }
+
+  const scheduleTitle = item.title.toLowerCase();
+  const sameDayMatch = day.activities.find((activity) => {
+    const activityTitle = activity.title.toLowerCase();
+    return scheduleTitle.includes(activityTitle) || activityTitle.includes(scheduleTitle);
+  });
+
+  return sameDayMatch ? { day, activity: sameDayMatch } : null;
 }
 
 function getGuideContent(guide: ResourceGuide): GuideContent {
@@ -499,26 +1211,46 @@ function getGuideContent(guide: ResourceGuide): GuideContent {
         outputs: ["Daily decisions", "Captured artefacts", "Running notes", "Sprint report evidence"],
       };
 
-    case "Day Opening & Closing Scripts":
-      return {
-        summary: "Short scripts that reduce facilitator load and help each day feel structured, confident, and purposeful.",
-        useWhen: ["At the start of each day", "After breaks", "At the end of each day"],
-        steps: [
-          { title: "Day 1 opening", detail: "Today we understand the challenge, hear from experts, turn problems into opportunities, and choose the target we will solve for." },
-          { title: "Day 2 opening", detail: "Today we move from understanding to possible solutions. We will sketch individually, review silently, and choose one direction to prototype." },
-          { title: "Day 3 opening", detail: "Today we build only what we need to learn. The prototype must feel real enough for users to react to, not complete enough to launch." },
-          { title: "Day 4 opening", detail: "Today we test the prototype with users. We are looking for behaviour, confusion, value, evidence, and clear next steps." },
-          { title: "Daily close", detail: "Summarise decisions, capture missing artefacts, name open questions, and preview what happens next." },
-        ],
-        facilitatorPrompts: [
-          "Today’s job is not to solve everything. It is to produce the next useful sprint output.",
-          "We are going to trust the process and keep moving.",
-          "Before we finish, what have we decided and what still needs evidence?",
-        ],
-        checklist: ["Goal restated", "Agenda visible", "Working agreement repeated", "Outputs named", "Artefacts captured", "Tomorrow previewed"],
-        watchouts: ["Long openings drain energy.", "Vague closes create confusion the next morning.", "Do not end without naming decisions."],
-        outputs: ["Daily recap", "Decision list", "Captured artefacts", "Next-day focus"],
-      };
+      case "Day Opening & Closing Scripts":
+        return {
+          summary: "Short scripts that reduce facilitator load and help each day feel structured, confident, and purposeful.",
+          useWhen: ["At the start of each day", "After breaks", "At the end of each day"],
+          steps: [
+            {
+              title: "Day 1 opening",
+              detail:
+                "Today we define the challenge and create solution directions. We will map the problem, gather expert insight, frame our long-term goal and sprint questions, choose a target, then use lightning demos and four-step sketching to create solution concepts.",
+            },
+            {
+              title: "Day 2 opening",
+              detail:
+                "Today we decide and storyboard. We will review yesterday’s solution concepts in the Art Gallery, present the strongest areas, run Straw Poll and Decider voting, define the user test flow, and turn the chosen direction into a storyboard ready for prototyping.",
+            },
+            {
+              title: "Day 3 opening",
+              detail:
+                "Today we prototype. We will plan the prototype, build only what is needed to test the storyboard, and review it against tomorrow’s user testing goals.",
+            },
+            {
+              title: "Day 4 opening",
+              detail:
+                "Today we test and validate. We will prepare the sessions, run five user tests, observe behaviour, capture evidence, and identify the clearest patterns and next steps.",
+            },
+            {
+              title: "Daily close",
+              detail:
+                "Summarise the decisions made, explain how the team arrived at the current direction, capture missing artefacts, confirm next steps, and preview what happens tomorrow.",
+            },
+          ],
+          facilitatorPrompts: [
+            "Today’s job is not to solve everything. It is to produce the next useful sprint output.",
+            "We are going to trust the process and keep moving.",
+            "Before we finish, what have we decided and what still needs evidence?",
+          ],
+          checklist: ["Goal restated", "Agenda visible", "Working agreement repeated", "Outputs named", "Artefacts captured", "Tomorrow previewed"],
+          watchouts: ["Long openings drain energy.", "Vague closes create confusion the next morning.", "Do not end without naming decisions."],
+          outputs: ["Daily recap", "Decision list", "Captured artefacts", "Next-day focus"],
+        };
 
     case "Transitions & Instructions Library":
       return {
@@ -536,6 +1268,68 @@ function getGuideContent(guide: ResourceGuide): GuideContent {
         outputs: ["Cleaner activity outputs", "Less confusion", "Better timekeeping"],
       };
 
+    case "Long Term Goal and Sprint Questions":
+      return {
+        summary:
+          "This activity helps the team define what long-term success looks like and expose the biggest uncertainties before choosing a sprint target. It creates a shared definition of success and a set of critical questions the sprint should help answer.",
+        useWhen: ["Day 1", "Before target selection", "Before solution creation"],
+        steps: [
+          {
+            title: "Explain the purpose",
+            detail:
+              "Tell the team that the Long Term Goal describes what success should look like in the future, while Sprint Questions capture what could stop that success from happening.",
+          },
+          {
+            title: "Write long-term goals individually",
+            detail:
+              "Ask each participant to silently write one or more long-term goals. Encourage outcomes, behaviour changes, service improvements, adoption, confidence, impact, or measurable success rather than features.",
+          },
+          {
+            title: "Share and combine goals",
+            detail:
+              "Place goals where everyone can see them, group similar statements, and discuss which goal best reflects the ambition of the sprint. The Decider can choose or combine the final wording.",
+          },
+          {
+            title: "Create pessimistic sprint questions",
+            detail:
+              "Turn risks and doubts into questions. Use prompts like ‘Can we…?’, ‘Will users…?’, ‘Can the service…?’, or ‘Will this work if…?’ The aim is to make uncertainty visible, not to solve it yet.",
+          },
+          {
+            title: "Cluster and prioritise the questions",
+            detail:
+              "Group similar questions and mark the ones that feel most important to answer during the sprint. Keep these visible during target selection, concept voting, storyboarding, prototyping, and testing.",
+          },
+        ],
+        facilitatorPrompts: [
+          "If this sprint is successful, what should be true in 12-24 months?",
+          "What outcome would make this worth doing?",
+          "What could stop this from working?",
+          "What are we assuming that we need to test?",
+          "Which questions are most important for users to help us answer?",
+        ],
+        checklist: [
+          "Long-term goals written individually",
+          "Final goal selected or combined",
+          "Sprint questions written pessimistically",
+          "Questions clustered into themes",
+          "Most important questions prioritised",
+          "Goal and questions captured as artefacts",
+        ],
+        watchouts: [
+          "Avoid goals that describe a feature rather than an outcome.",
+          "Do not make the Sprint Questions too safe or optimistic.",
+          "Do not solve the questions during this activity — use them to guide the rest of the sprint.",
+          "Make sure the Decider is involved in choosing the final goal and priority questions.",
+        ],
+        outputs: [
+          "Long-term goal",
+          "Prioritised sprint questions",
+          "Visible risk themes",
+          "Inputs for target selection",
+          "Testing questions for Day 4",
+        ],
+      };
+      
     case "Problem Mapping Facilitation Guide":
       return {
         summary: "Problem mapping helps the team build a shared picture of the user journey, pain points, constraints, and moments where the sprint could intervene.",
@@ -555,19 +1349,76 @@ function getGuideContent(guide: ResourceGuide): GuideContent {
 
     case "Expert Interview Guide":
       return {
-        summary: "Expert interviews bring important context into the room quickly. They help the team understand users, constraints, prior attempts, risks, and hidden knowledge.",
-        useWhen: ["Day 1", "When the team lacks context", "When assumptions need surfacing"],
+        summary:
+          "Expert Interviews & How Might We is a combined Day 1 activity. Expert input brings context into the room quickly; HMW creation turns useful observations into opportunity questions the team can use for target selection and solution creation.",
+        useWhen: ["Day 1", "When the team needs context", "When assumptions need surfacing", "Before target selection"],
         steps: [
-          { title: "Brief the expert", detail: "Explain the sprint challenge and ask them to focus on facts, patterns, constraints, and user evidence." },
-          { title: "Ask open questions", detail: "Use questions that reveal behaviour, pain, constraints, previous solutions, and known risks." },
-          { title: "Capture HMWs silently", detail: "As the expert speaks, the sprint team writes How Might We notes and observations individually." },
-          { title: "Clarify signals", detail: "Ask follow-up questions where there is strong evidence, contradiction, or uncertainty." },
-          { title: "Thank and summarise", detail: "Confirm the key points heard and capture any open questions for later." },
+          {
+            title: "Brief the expert",
+            detail:
+              "Explain the sprint challenge and ask the expert to focus on facts, patterns, user evidence, constraints, previous attempts, risks, and anything the team must not miss.",
+          },
+          {
+            title: "Ask open questions",
+            detail:
+              "Use questions that reveal user behaviour, pain points, operational constraints, previous solutions, workarounds, policy limits, and known risks. Keep the expert focused on evidence rather than pitching solutions.",
+          },
+          {
+            title: "Capture observations silently",
+            detail:
+              "While the expert speaks, participants individually write useful facts, quotes, risks, assumptions, contradictions, and questions. One point per note keeps later clustering easier.",
+          },
+          {
+            title: "Convert observations into HMWs",
+            detail:
+              "After each expert input, ask participants to turn the strongest observations into How Might We questions. Each HMW should begin with ‘How might we…’, describe an opportunity, and avoid embedding a specific solution.",
+          },
+          {
+            title: "Cluster related HMWs",
+            detail:
+              "Place HMWs on the wall, group similar opportunities, and name the clusters. Look for repeated themes, high-risk areas, user pain, or opportunities that connect strongly to the sprint challenge.",
+          },
+          {
+            title: "Mark the strongest opportunities",
+            detail:
+              "Use dots, discussion, or Decider judgement to identify which HMWs should inform target selection, lightning demos, sketching, and later user testing.",
+          },
         ],
-        facilitatorPrompts: ["What have users struggled with most?", "What has already been tried?", "What constraints must we respect?", "What would you warn this team not to miss?"],
-        checklist: ["Experts booked", "Questions prepared", "Timer set", "HMW notes captured", "Key quotes noted", "Open questions saved"],
-        watchouts: ["Do not let experts present for too long.", "Avoid asking for solutions only.", "Do not treat one expert opinion as user evidence."],
-        outputs: ["Expert insights", "HMW notes", "Constraints", "Risks", "Open questions"],
+        facilitatorPrompts: [
+          "What have users struggled with most?",
+          "What has already been tried?",
+          "What constraints must we respect?",
+          "What would you warn this team not to miss?",
+          "How might we turn that problem into an opportunity?",
+          "Does this HMW describe an opportunity without assuming the solution?",
+          "Which HMWs feel most important for the sprint target?",
+        ],
+        checklist: [
+          "Experts or evidence sources ready",
+          "Interview questions prepared",
+          "Timer set",
+          "Observations captured individually",
+          "Direct quotes and constraints noted",
+          "HMWs written from strongest observations",
+          "HMWs clustered into themes",
+          "Important opportunities marked for target selection",
+        ],
+        watchouts: [
+          "Do not let experts present for too long.",
+          "Avoid asking experts only for solutions.",
+          "Do not treat one expert opinion as user evidence.",
+          "Do not let HMWs become disguised solutions.",
+          "Avoid HMWs that are so broad they cannot guide sketching or target selection.",
+        ],
+        outputs: [
+          "Expert insights",
+          "Key quotes",
+          "Constraints and risks",
+          "Assumptions and open questions",
+          "HMW opportunity notes",
+          "Clustered HMW themes",
+          "Priority opportunities for target selection",
+        ],
       };
 
     case "How Might We Workshop Guide":
@@ -589,18 +1440,59 @@ function getGuideContent(guide: ResourceGuide): GuideContent {
 
     case "Lightning Demos & Sketching Guide":
       return {
-        summary: "Lightning demos and sketching help the team move from problem understanding to solution possibilities while protecting independent thinking.",
-        useWhen: ["Day 2", "Before solution sketching", "When the team needs inspiration"],
+        summary:
+          "Lightning Demos and Four-Step Sketch now happen on Day 1 after target selection. The aim is to move from a focused challenge into strong individual solution concepts without groupthink.",
+        useWhen: ["Day 1", "After target selection", "Before Day 2 concept review"],
         steps: [
-          { title: "Run lightning demos", detail: "Each person shares examples from inside or outside the sector. Focus on useful patterns, not copying whole products." },
-          { title: "Capture ingredients", detail: "Write down reusable ideas, interaction patterns, content approaches, service moments, or decision mechanisms." },
-          { title: "Four-step sketch", detail: "Move through notes, ideas, Crazy 8s, and a final solution sketch. Keep work individual and mostly silent." },
-          { title: "Make sketches self-explanatory", detail: "Each sketch should include a title, key steps, annotations, and enough detail to be understood without a pitch." },
+          {
+            title: "Run lightning demos",
+            detail:
+              "Ask participants to share short examples from inside or outside the sector. Focus on useful patterns, mechanisms, service moments, content approaches, or interaction ideas — not copying whole products.",
+          },
+          {
+            title: "Capture useful ingredients",
+            detail:
+              "For each example, capture the specific ingredient that could inspire the sprint challenge. Keep these visible for sketching.",
+          },
+          {
+            title: "Move into four-step sketching",
+            detail:
+              "Guide participants through notes, ideas, Crazy 8s, and a final solution sketch. Work silently so every person creates an independent concept.",
+          },
+          {
+            title: "Use the break deliberately",
+            detail:
+              "The sketching block includes a break. Use it to reset energy before participants finalise their strongest idea.",
+          },
+          {
+            title: "Make final sketches self-explanatory",
+            detail:
+              "Each final sketch should include a title, steps, annotations, and enough context to be reviewed in the Day 2 Art Gallery without the author pitching it.",
+          },
         ],
-        facilitatorPrompts: ["What pattern is useful here?", "How could this inspire our challenge?", "Show the user flow, not just screens.", "Make it understandable without explanation."],
-        checklist: ["Examples gathered", "Useful patterns captured", "Silent sketching protected", "Crazy 8s completed", "Solution sketches finished"],
-        watchouts: ["Do not let people pitch ideas during sketching.", "Do not judge drawing quality.", "Avoid copying an example without adapting it to the user need."],
-        outputs: ["Lightning demo notes", "Idea ingredients", "Crazy 8s", "Solution sketches"],
+        facilitatorPrompts: [
+          "What is the useful pattern in this example?",
+          "How could this inspire our sprint target?",
+          "What would the user do first?",
+          "Can someone understand this sketch without you explaining it?",
+          "What is the riskiest or most important part of the idea?",
+        ],
+        checklist: [
+          "Lightning demo examples shared",
+          "Useful ingredients captured",
+          "Sketching instructions clear",
+          "Silent sketching protected",
+          "Crazy 8s completed",
+          "Final solution sketches finished",
+          "Sketches ready for Day 2 Art Gallery",
+        ],
+        watchouts: [
+          "Do not let Lightning Demos turn into long presentations.",
+          "Do not allow debate during silent sketching.",
+          "Avoid judging drawing ability.",
+          "Make sure sketches are understandable without the author explaining them.",
+        ],
+        outputs: ["Lightning demo ingredients", "Crazy 8s", "Final solution sketches", "Concepts ready for Day 2 review"],
       };
 
     case "Voting & Decision Framework":
@@ -608,33 +1500,176 @@ function getGuideContent(guide: ResourceGuide): GuideContent {
         summary: "Voting helps the team reveal signal quickly, but the Decider keeps momentum by making the final call. Use voting as input, not as a substitute for decision-making.",
         useWhen: ["Target selection", "Sketch selection", "Prioritising opportunities", "Choosing next steps"],
         steps: [
-          { title: "Set criteria", detail: "Explain what people are voting for: user value, feasibility, evidence, risk, or strategic fit." },
-          { title: "Review silently", detail: "Give people time to inspect options without discussion so they are not swayed too early." },
-          { title: "Dot vote", detail: "Participants place votes on the strongest options. Encourage voting for substance, not polish." },
-          { title: "Discuss signal", detail: "Review where votes cluster, but also ask what risks or assumptions remain." },
-          { title: "Supervote", detail: "The Decider makes the final selection and briefly explains the rationale." },
+          {
+            title: "Set decision criteria",
+            detail:
+              "Explain what participants are evaluating: user value, Sprint Question coverage, feasibility, learning potential, strategic fit, or level of risk reduction.",
+          },
+          {
+            title: "Silent review",
+            detail:
+              "Give participants time to inspect concepts, user flows, or storyboard sections silently before discussion begins.",
+          },
+          {
+            title: "Run presentations",
+            detail:
+              "Present concepts or user test flows quickly and consistently so participants understand the key idea without long pitches or debate.",
+          },
+          {
+            title: "Straw poll voting",
+            detail:
+              "Give each participant one large voting dot and ask them to vote for the strongest direction based on answering the Sprint Questions.",
+          },
+          {
+            title: "Decider vote",
+            detail:
+              "Give the Decider two marked votes to select the main direction plus one wildcard option if needed.",
+          },
+          {
+            title: "Capture the rationale",
+            detail:
+              "Record why the chosen direction won and what assumptions or risks still need testing.",
+          },
         ],
-        facilitatorPrompts: ["Vote for the idea you would most want to test.", "What risk would this help us learn about?", "Where is there strong signal?", "Decider, what are we carrying forward?"],
+        facilitatorPrompts: [
+          "Vote for the direction you most want to test with users.",
+          "Which concept best answers our Sprint Questions?",
+          "What risk would this help us learn about?",
+          "Decider, what are we carrying forward into storyboarding?",
+        ],
         checklist: ["Criteria named", "Silent review done", "Votes captured", "Rationale captured", "Final choice made", "Artefact photographed"],
         watchouts: ["Dot voting can reward popularity or polish.", "Do not force consensus.", "Do not ignore a Decider concern simply because votes clustered elsewhere."],
-        outputs: ["Voting board", "Decision rationale", "Selected target or concept", "Risks to test"],
+        outputs: [
+          "Voting board",
+          "Winning concept",
+          "Wildcard concept",
+          "Decision rationale",
+          "Storyboard direction",
+        ],
       };
+
+      case "User Test Flow & Storyboarding Guide":
+        return {
+          summary:
+            "This guide supports the Day 2 flow from selected concept to user test flow and storyboard. The goal is to define the exact experience users will move through, then turn it into a clear storyboard for Day 3 prototyping.",
+          useWhen: ["Day 2", "After concept selection", "Before prototyping"],
+          steps: [
+            {
+              title: "Create individual user test flows",
+              detail:
+                "Use the 123/ABC wall matrix. Ask each participant to use six post-its to outline a rough user journey that could test the selected concept and sprint questions.",
+            },
+            {
+              title: "Present and compare flows",
+              detail:
+                "Have participants present their flow quickly. Keep the focus on the user journey, not detailed screens or interface polish.",
+            },
+            {
+              title: "Vote and decide",
+              detail:
+                "Give each person one vote for the preferred flow. Then give the Decider two votes to select the main test flow and a wildcard if useful.",
+            },
+            {
+              title: "Storyboard Part 1",
+              detail:
+                "Create 10 panels and align the chosen user test flow into the storyboard. Walk through the rough story, then move in concept sketches to fill the major gaps.",
+            },
+            {
+              title: "Storyboard Part 2",
+              detail:
+                "Fill in details, missing states, transitions, confirmations, and in-between moments. Walk through the finished storyboard from the user’s point of view.",
+            },
+            {
+              title: "Prioritise prototype screens",
+              detail:
+                "Mark the screens or moments that must be built if time becomes tight. This helps the Day 3 prototype team protect the most important parts of the test.",
+            },
+          ],
+          facilitatorPrompts: [
+            "What journey do users need to experience for us to learn?",
+            "Which flow best answers the Sprint Questions?",
+            "What are the minimum screens or moments needed for a valid test?",
+            "Where might users need feedback, confirmation, or transition states?",
+            "If we run out of time tomorrow, which screens absolutely must exist?",
+          ],
+          checklist: [
+            "123/ABC matrix created",
+            "Individual user test flows completed",
+            "Flows presented and voted on",
+            "Decider selected main flow and wildcard",
+            "10 storyboard panels created",
+            "Concept sketches placed into the storyboard",
+            "Missing states and transitions added",
+            "Priority prototype screens marked",
+          ],
+          watchouts: [
+            "Do not start storyboarding before the user test flow is clear.",
+            "Avoid adding every possible feature to the storyboard.",
+            "Do not skip in-between states that users need to understand the journey.",
+            "Keep the storyboard focused on what needs to be tested, not what would be built in the final product.",
+          ],
+          outputs: [
+            "Selected user test flow",
+            "Wildcard flow or idea",
+            "10-panel storyboard",
+            "Priority prototype screens",
+            "Prototype handover for Day 3",
+          ],
+        };
 
     case "Prototyping Guide":
       return {
         summary: "A sprint prototype should be realistic enough to generate valid user reactions, but lightweight enough to build in a day. Build the illusion of the experience, not the full system.",
         useWhen: ["Day 3", "After selecting a concept", "Before user testing"],
         steps: [
-          { title: "Define the critical path", detail: "Identify the smallest flow users must experience to test the sprint question." },
-          { title: "Choose fidelity", detail: "Use slides, Figma, paper, clickable mockups, forms, or staged service materials depending on what needs to feel real." },
-          { title: "Assign roles", detail: "Common roles include maker, writer, stitcher, asset collector, interviewer, and reviewer." },
-          { title: "Use realistic content", detail: "Replace lorem ipsum with plausible wording, data, names, scenarios, and constraints." },
-          { title: "Review before testing", detail: "Run through the prototype as a user and fix anything that blocks the test scenario." },
+          {
+            title: "Define the user test flow",
+            detail:
+              "Identify the exact journey users will experience during testing. Focus on the smallest realistic path needed to answer the Sprint Questions.",
+          },
+          {
+            title: "Create the storyboard structure",
+            detail:
+              "Build a 10-panel storyboard and align the chosen user test flow into the panels before discussing detailed screens.",
+          },
+          {
+            title: "Strengthen the journey",
+            detail:
+              "Move in sketches, concepts, and interface ideas from earlier activities to fill gaps and improve weak moments in the flow.",
+          },
+          {
+            title: "Fill in missing states",
+            detail:
+              "Make sure important transitions, loading states, confirmations, and in-between moments are represented so the experience feels coherent.",
+          },
+          {
+            title: "Identify critical prototype screens",
+            detail:
+              "Mark the highest-priority screens that absolutely must exist if the prototype scope needs reducing later.",
+          },
+          {
+            title: "Prepare for prototyping",
+            detail:
+              "Assign roles, choose prototype fidelity, and confirm the target testing audience before Day 3 begins.",
+          },
         ],
         facilitatorPrompts: ["What do users need to believe is real?", "What can we fake safely?", "What is the critical path?", "What question will this prototype help answer?"],
-        checklist: ["Storyboard agreed", "Roles assigned", "Critical path built", "Realistic content added", "Prototype rehearsed", "Testing script aligned"],
+        checklist: [
+          "User test flow agreed",
+          "Storyboard panels created",
+          "Concept sketches integrated",
+          "Missing states filled",
+          "Critical screens identified",
+          "Prototype approach agreed",
+        ],
         watchouts: ["Do not build the entire product.", "Do not spend the day perfecting visual details.", "Avoid features that are not needed for the test question."],
-        outputs: ["Storyboard", "Prototype plan", "Testable prototype", "Testing script inputs"],
+        outputs: [
+          "User test flow",
+          "Storyboard",
+          "Priority prototype screens",
+          "Prototype plan",
+          "Testing audience definition",
+        ],
       };
 
     case "User Testing Guide":
@@ -803,6 +1838,20 @@ function getGuideContent(guide: ResourceGuide): GuideContent {
   }
 }
 
+type TestingSession = {
+  participant: string;
+  role?: string;
+  clarityScore: number;
+  usefulnessScore: number;
+  confidenceScore: number;
+  taskCompletionScore: number;
+  keyQuote: string;
+  observedBehaviour: string;
+  frictionPoint: string;
+  positiveSignal: string;
+  recommendation: string;
+};
+
 type AppState = {
   currentDay: DayId;
   sprintName: string;
@@ -813,14 +1862,25 @@ type AppState = {
   notes: Record<string, string>;
   artefacts: Record<string, Artefact[]>;
   hmws: string[];
+  testingSessions: Record<string, TestingSession>;
+  scheduleOverrides: Partial<Record<DayId, SprintDay["schedule"]>>;
   runningActivityId?: string;
+  runningActivityStartedAt?: number;
+  runningActivityDurationSeconds?: number;
+  runningActivityPausedAt?: number;
+  runningActivityPausedTotalMs?: number;
 };
 
 type Action =
+  | { type: "session/replace"; state: AppState }
   | { type: "nav/setDay"; dayId: DayId }
   | { type: "setup/update"; field: "sprintName" | "challenge" | "targetUsers" | "desiredOutcome"; value: string }
   | { type: "activity/run"; key: string }
+  | { type: "activity/pause" }
+  | { type: "activity/resume" }
   | { type: "activity/stop" }
+  | { type: "activity/complete"; key: string }
+  | { type: "activity/addTime"; seconds: number }
   | { type: "activity/toggleComplete"; key: string }
   | { type: "notes/set"; key: string; value: string }
   | { type: "artefact/add"; key: string; artefact: Artefact }
@@ -828,7 +1888,16 @@ type Action =
   | { type: "artefact/updateName"; key: string; artefactId: string; name: string }
   | { type: "artefact/updateCaption"; key: string; artefactId: string; caption: string }
   | { type: "artefact/updateNoteKind"; key: string; artefactId: string; noteKind: Artefact["noteKind"] }
-  | { type: "hmw/addMany"; questions: string[]; writeToDay1HmwNotes?: boolean };
+  | { type: "hmw/addMany"; questions: string[]; writeToDay1HmwNotes?: boolean }
+  | { type: "hmw/delete"; question: string }
+  | { type: "testing/updateSession"; key: string; field: keyof TestingSession; value: string | number }
+  | { type: "schedule/updateItem"; dayId: DayId; index: number; field: "time" | "title" | "duration"; value: string }
+  | { type: "schedule/toggleBreak"; dayId: DayId; index: number }
+  | { type: "schedule/addItem"; dayId: DayId }
+  | { type: "schedule/removeItem"; dayId: DayId; index: number }
+  | { type: "schedule/moveItem"; dayId: DayId; index: number; direction: "up" | "down" }
+  | { type: "schedule/moveItemToDay"; fromDayId: DayId; index: number; toDayId: DayId }
+  | { type: "schedule/resetDay"; dayId: DayId };
 
 const initialState: AppState = {
   currentDay: "day1",
@@ -840,11 +1909,359 @@ const initialState: AppState = {
   notes: {},
   artefacts: {},
   hmws: [],
+  testingSessions: {},
+  scheduleOverrides: {},
   runningActivityId: undefined,
+  runningActivityStartedAt: undefined,
+  runningActivityDurationSeconds: undefined,
+  runningActivityPausedAt: undefined,
+  runningActivityPausedTotalMs: 0,
 };
+
+type SprintSessionStatus = "draft" | "live" | "complete" | "archived";
+
+type SprintSession = {
+  id: string;
+  cloudId?: string;
+  name: string;
+  status: SprintSessionStatus;
+  createdAt: number;
+  updatedAt: number;
+  state: AppState;
+};
+
+const SPRINTPILOT_LEGACY_STORAGE_KEY = "sprintpilot.currentSession.v1";
+const SPRINTPILOT_SESSIONS_KEY = "sprintpilot.sessions.v1";
+const SPRINTPILOT_ACTIVE_SESSION_KEY = "sprintpilot.activeSessionId.v1";
+
+type CloudSprintSessionRow = {
+  id: string;
+  name: string;
+  status: SprintSessionStatus;
+  state: AppState;
+  created_at: string;
+  updated_at: string;
+};
+
+function cloudRowToSprintSession(row: CloudSprintSessionRow): SprintSession {
+  return {
+    id: row.id,
+    cloudId: row.id,
+    name: row.name || row.state?.sprintName || "Untitled sprint",
+    status: row.status ?? "draft",
+    createdAt: new Date(row.created_at).getTime(),
+    updatedAt: new Date(row.updated_at).getTime(),
+    state: normaliseAppState(row.state),
+  };
+}
+
+async function fetchCloudSessions(): Promise<SprintSession[]> {
+  if (!supabase) return [];
+
+  const { data, error } = await supabase
+    .from("sprint_sessions")
+    .select("id,name,status,state,created_at,updated_at")
+    .order("updated_at", { ascending: false });
+
+  if (error) {
+    console.error("Failed to fetch cloud sprint sessions", error);
+    return [];
+  }
+
+  return ((data ?? []) as CloudSprintSessionRow[]).map(cloudRowToSprintSession);
+}
+
+async function createCloudSession(state: AppState, status: SprintSessionStatus = "draft"): Promise<SprintSession | null> {
+  if (!supabase) return null;
+
+  const { data, error } = await supabase
+    .from("sprint_sessions")
+    .insert({
+      name: state.sprintName || "Untitled sprint",
+      status,
+      state,
+      updated_at: new Date().toISOString(),
+    })
+    .select("id,name,status,state,created_at,updated_at")
+    .single();
+
+  if (error) {
+    console.error("Failed to create cloud sprint session", error);
+    return null;
+  }
+
+  return cloudRowToSprintSession(data as CloudSprintSessionRow);
+}
+
+async function updateCloudSession(sessionId: string, state: AppState, status?: SprintSessionStatus): Promise<void> {
+  if (!supabase) return;
+
+  const payload: { name: string; state: AppState; updated_at: string; status?: SprintSessionStatus } = {
+    name: state.sprintName || "Untitled sprint",
+    state,
+    updated_at: new Date().toISOString(),
+  };
+
+  if (status) payload.status = status;
+
+  const { error } = await supabase.from("sprint_sessions").update(payload).eq("id", sessionId);
+
+  if (error) console.error("Failed to update cloud sprint session", error);
+}
+
+function createSessionId() {
+  return `session-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function normaliseAppState(parsed: Partial<AppState>): AppState {
+  return {
+    ...initialState,
+    ...parsed,
+    completed: Array.isArray(parsed.completed) ? parsed.completed : initialState.completed,
+    notes: parsed.notes && typeof parsed.notes === "object" ? parsed.notes : initialState.notes,
+    artefacts: parsed.artefacts && typeof parsed.artefacts === "object" ? parsed.artefacts : initialState.artefacts,
+    hmws: Array.isArray(parsed.hmws) ? parsed.hmws : initialState.hmws,
+
+    testingSessions:
+      parsed.testingSessions && typeof parsed.testingSessions === "object"
+        ? parsed.testingSessions
+        : initialState.testingSessions,
+    scheduleOverrides:
+      parsed.scheduleOverrides && typeof parsed.scheduleOverrides === "object"
+        ? parsed.scheduleOverrides
+        : initialState.scheduleOverrides,
+    currentDay: DAY_IDS.includes(parsed.currentDay as DayId) ? (parsed.currentDay as DayId) : initialState.currentDay,
+    runningActivityStartedAt: typeof parsed.runningActivityStartedAt === "number" ? parsed.runningActivityStartedAt : initialState.runningActivityStartedAt,
+    runningActivityDurationSeconds: typeof parsed.runningActivityDurationSeconds === "number" ? parsed.runningActivityDurationSeconds : initialState.runningActivityDurationSeconds,
+    runningActivityPausedAt: typeof parsed.runningActivityPausedAt === "number" ? parsed.runningActivityPausedAt : initialState.runningActivityPausedAt,
+    runningActivityPausedTotalMs: typeof parsed.runningActivityPausedTotalMs === "number" ? parsed.runningActivityPausedTotalMs : initialState.runningActivityPausedTotalMs,
+  };
+}
+
+function createSprintSession(state: AppState, overrides: Partial<SprintSession> = {}): SprintSession {
+  const now = Date.now();
+
+  return {
+    id: overrides.id ?? createSessionId(),
+    cloudId: overrides.cloudId,
+    name: state.sprintName || "Untitled sprint",
+    status: overrides.status ?? "live",
+    createdAt: overrides.createdAt ?? now,
+    updatedAt: overrides.updatedAt ?? now,
+    state,
+  };
+}
+
+function readStoredSessions(): SprintSession[] {
+  if (typeof window === "undefined") return [];
+
+  try {
+    const saved = window.localStorage.getItem(SPRINTPILOT_SESSIONS_KEY);
+
+    if (saved) {
+      const parsed = JSON.parse(saved) as SprintSession[];
+
+      if (Array.isArray(parsed)) {
+        return parsed
+          .filter((session) => session && typeof session.id === "string" && session.state)
+          .map((session) => ({
+            ...session,
+            cloudId: session.cloudId,
+            name: session.name || session.state.sprintName || "Untitled sprint",
+            status: session.status ?? "live",
+            state: normaliseAppState(session.state),
+          }));
+      }
+    }
+
+    const legacy = window.localStorage.getItem(SPRINTPILOT_LEGACY_STORAGE_KEY);
+    if (!legacy) return [];
+
+    const legacyState = normaliseAppState(JSON.parse(legacy) as Partial<AppState>);
+    return [createSprintSession(legacyState)];
+  } catch {
+    return [];
+  }
+}
+
+function writeStoredSessions(sessions: SprintSession[]) {
+  if (typeof window === "undefined") return;
+
+  window.localStorage.setItem(SPRINTPILOT_SESSIONS_KEY, JSON.stringify(sessions));
+}
+
+function loadActiveSession(): SprintSession {
+  if (typeof window === "undefined") return createSprintSession(initialState);
+
+  const sessions = readStoredSessions();
+  const activeSessionId = window.localStorage.getItem(SPRINTPILOT_ACTIVE_SESSION_KEY);
+  const activeSession =
+    sessions.find((session) => session.id === activeSessionId) ??
+    sessions.find((session) => session.status !== "archived") ??
+    sessions[0];
+
+  if (activeSession) {
+    window.localStorage.setItem(SPRINTPILOT_ACTIVE_SESSION_KEY, activeSession.id);
+    writeStoredSessions(sessions);
+    return activeSession;
+  }
+
+  const newSession = createSprintSession(initialState, { status: "draft" });
+
+  window.localStorage.setItem(SPRINTPILOT_ACTIVE_SESSION_KEY, newSession.id);
+  writeStoredSessions([newSession]);
+
+  return newSession;
+}
+
+function saveSessionState(sessionId: string, state: AppState) {
+  if (typeof window === "undefined") return;
+
+  const sessions = readStoredSessions();
+  const existingSession = sessions.find((session) => session.id === sessionId);
+
+  const updatedSession = createSprintSession(state, {
+    id: sessionId,
+    cloudId: existingSession?.cloudId,
+    status: existingSession?.status ?? "live",
+    createdAt: existingSession?.createdAt,
+    updatedAt: Date.now(),
+  });
+
+  const nextSessions = existingSession
+    ? sessions.map((session) => (session.id === sessionId ? updatedSession : session))
+    : [updatedSession, ...sessions];
+
+    writeStoredSessions(nextSessions);
+    window.localStorage.setItem(SPRINTPILOT_ACTIVE_SESSION_KEY, sessionId);
+    
+    if (existingSession?.cloudId) {
+      void updateCloudSession(existingSession.cloudId, state);
+    }
+}
+
+function activityDurationToSeconds(duration: string) {
+  const lower = duration.toLowerCase();
+  const hours = lower.match(/(\d+(?:\.\d+)?)\s*h/);
+  const minutes = lower.match(/(\d+(?:\.\d+)?)\s*m/);
+
+  if (hours) return Math.round(Number(hours[1]) * 60 * 60);
+  if (minutes) return Math.round(Number(minutes[1]) * 60);
+
+  const firstNumber = lower.match(/\d+/);
+  return firstNumber ? Number(firstNumber[0]) * 60 : 30 * 60;
+}
+
+function formatScheduleMinutes(totalMinutes: number) {
+  const rounded = Math.round(totalMinutes);
+  const hours = Math.floor(rounded / 60);
+  const minutes = rounded % 60;
+  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
+}
+
+function getActivityTimeRange(day: SprintDay, activityIndex: number) {
+  const activity = day.activities[activityIndex];
+  const scheduleItem = day.schedule.find((item) => item.title === activity?.title);
+
+  if (scheduleItem?.time && activity) {
+    const match = scheduleItem.time.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
+
+    if (match) {
+      const rawHour = Number(match[1]);
+      const minute = Number(match[2]);
+      const period = match[3].toUpperCase();
+      const hour = period === "PM" && rawHour !== 12 ? rawHour + 12 : period === "AM" && rawHour === 12 ? 0 : rawHour;
+      const startMinutes = hour * 60 + minute;
+      const endMinutes = startMinutes + activityDurationToSeconds(activity.duration) / 60;
+      return `${formatScheduleMinutes(startMinutes)} – ${formatScheduleMinutes(endMinutes)}`;
+    }
+  }
+
+  let startMinutes = 9 * 60;
+
+  for (let index = 0; index < activityIndex; index += 1) {
+    startMinutes += activityDurationToSeconds(day.activities[index].duration) / 60;
+  }
+
+  const endMinutes = startMinutes + activityDurationToSeconds(activity.duration) / 60;
+  return `${formatScheduleMinutes(startMinutes)} – ${formatScheduleMinutes(endMinutes)}`;
+}
+
+function formatCountdown(totalSeconds: number) {
+  const safeSeconds = Math.max(0, Math.floor(totalSeconds));
+  const hours = Math.floor(safeSeconds / 3600);
+  const minutes = Math.floor((safeSeconds % 3600) / 60);
+  const seconds = safeSeconds % 60;
+
+  if (hours > 0) {
+    return `${hours}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+  }
+
+  return `${minutes}:${String(seconds).padStart(2, "0")}`;
+}
+
+function useActivityCountdown(state: AppState) {
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    if (
+      !state.runningActivityId ||
+      !state.runningActivityStartedAt ||
+      !state.runningActivityDurationSeconds
+    ) {
+      setNow(Date.now());
+      return;
+    }
+
+    setNow(Date.now());
+
+    const interval = window.setInterval(() => {
+      setNow(Date.now());
+    }, 1000);
+
+    return () => window.clearInterval(interval);
+  }, [
+    state.runningActivityId,
+    state.runningActivityStartedAt,
+    state.runningActivityDurationSeconds,
+    state.runningActivityPausedAt,
+    state.runningActivityPausedTotalMs,
+  ]);
+
+  const totalSeconds = state.runningActivityDurationSeconds ?? 0;
+  const startedAt = state.runningActivityStartedAt ?? now;
+  const pausedAt = state.runningActivityPausedAt;
+  const pausedTotalMs = state.runningActivityPausedTotalMs ?? 0;
+  const effectiveNow = pausedAt ?? now;
+  const elapsedSeconds = Math.max(
+    0,
+    Math.floor((effectiveNow - startedAt - pausedTotalMs) / 1000)
+  );
+  const remainingSeconds = Math.max(0, totalSeconds - elapsedSeconds);
+  const isOvertime = Boolean(
+    state.runningActivityId &&
+      totalSeconds > 0 &&
+      elapsedSeconds >= totalSeconds
+  );
+  const progressPercent =
+    totalSeconds > 0
+      ? Math.min(100, Math.max(0, (elapsedSeconds / totalSeconds) * 100))
+      : 0;
+
+  return {
+    totalSeconds,
+    elapsedSeconds,
+    remainingSeconds,
+    isOvertime,
+    progressPercent,
+  };
+}
 
 function reducer(state: AppState, action: Action): AppState {
   switch (action.type) {
+    case "session/replace": {
+      return action.state;
+    }
     case "nav/setDay": {
       return { ...state, currentDay: action.dayId };
     }
@@ -852,16 +2269,114 @@ function reducer(state: AppState, action: Action): AppState {
       return { ...state, [action.field]: action.value };
     }
     case "activity/run": {
-      return { ...state, runningActivityId: action.key };
+      const dayId = action.key.split("-")[0] as DayId;
+      const activityId = action.key.replace(`${dayId}-`, "");
+      const day = sprintDays.find((item) => item.id === dayId);
+      const activity = day?.activities.find((item) => item.id === activityId);
+
+      const schedule = state.scheduleOverrides[dayId] ?? day?.schedule ?? [];
+
+      const scheduleItem = schedule.find((item) => {
+        if (item.isBreak) return false;
+        if ((item as any).activityId === activityId) return true;
+
+        const scheduleTitle = item.title.toLowerCase();
+        const activityTitle = activity?.title.toLowerCase() ?? "";
+        return scheduleTitle.includes(activityTitle) || activityTitle.includes(scheduleTitle);
+      });
+
+      const durationSeconds = scheduleItem
+        ? activityDurationToSeconds(scheduleItem.duration)
+        : activity
+        ? activityDurationToSeconds(activity.duration)
+        : 30 * 60;
+
+      return {
+        ...state,
+        runningActivityId: action.key,
+        runningActivityStartedAt: Date.now(),
+        runningActivityDurationSeconds: durationSeconds,
+        runningActivityPausedAt: undefined,
+        runningActivityPausedTotalMs: 0,
+        currentDay: dayId,
+      };
     }
     case "activity/stop": {
-      return { ...state, runningActivityId: undefined };
+      return {
+        ...state,
+        runningActivityId: undefined,
+        runningActivityStartedAt: undefined,
+        runningActivityDurationSeconds: undefined,
+        runningActivityPausedAt: undefined,
+        runningActivityPausedTotalMs: 0,
+      };
+    }
+    case "activity/complete": {
+      const alreadyCompleted = state.completed.includes(action.key);
+
+      return {
+        ...state,
+        completed: alreadyCompleted
+          ? state.completed
+          : [...state.completed, action.key],
+        runningActivityId:
+          state.runningActivityId === action.key
+            ? undefined
+            : state.runningActivityId,
+        runningActivityStartedAt:
+          state.runningActivityId === action.key
+            ? undefined
+            : state.runningActivityStartedAt,
+        runningActivityDurationSeconds:
+          state.runningActivityId === action.key
+            ? undefined
+            : state.runningActivityDurationSeconds,
+        runningActivityPausedAt:
+          state.runningActivityId === action.key
+            ? undefined
+            : state.runningActivityPausedAt,
+        runningActivityPausedTotalMs:
+          state.runningActivityId === action.key
+            ? 0
+            : state.runningActivityPausedTotalMs,
+      };
+    }
+    case "activity/addTime": {
+      if (!state.runningActivityId) return state;
+
+      return {
+        ...state,
+        runningActivityDurationSeconds: (state.runningActivityDurationSeconds ?? 0) + action.seconds,
+      };
+    }
+    case "activity/pause": {
+      if (!state.runningActivityId || state.runningActivityPausedAt) return state;
+
+      return {
+        ...state,
+        runningActivityPausedAt: Date.now(),
+      };
+    }
+    case "activity/resume": {
+      if (!state.runningActivityId || !state.runningActivityPausedAt) return state;
+
+      const pausedForMs = Date.now() - state.runningActivityPausedAt;
+
+      return {
+        ...state,
+        runningActivityPausedAt: undefined,
+        runningActivityPausedTotalMs: (state.runningActivityPausedTotalMs ?? 0) + pausedForMs,
+      };
     }
     case "activity/toggleComplete": {
       const isDone = state.completed.includes(action.key);
-      const completed = isDone ? state.completed.filter((k) => k !== action.key) : [...state.completed, action.key];
-      const runningActivityId = state.runningActivityId === action.key && !isDone ? undefined : state.runningActivityId;
-      return { ...state, completed, runningActivityId };
+
+      return {
+        ...state,
+        completed: isDone
+          ? state.completed.filter((k) => k !== action.key)
+          : [...state.completed, action.key],
+      };
     }
     case "notes/set": {
       return { ...state, notes: { ...state.notes, [action.key]: action.value } };
@@ -933,6 +2448,176 @@ function reducer(state: AppState, action: Action): AppState {
 
       return next;
     }
+
+    case "hmw/delete": {
+      return {
+        ...state,
+        hmws: state.hmws.filter((question) => question !== action.question),
+      };
+    }
+
+    case "testing/updateSession": {
+      const existing = state.testingSessions[action.key] ?? {
+        participant: "",
+        role: "",
+        clarityScore: 3,
+        usefulnessScore: 3,
+        confidenceScore: 3,
+        taskCompletionScore: 3,
+        keyQuote: "",
+        observedBehaviour: "",
+        frictionPoint: "",
+        positiveSignal: "",
+        recommendation: "",
+      };
+
+      return {
+        ...state,
+        testingSessions: {
+          ...state.testingSessions,
+          [action.key]: {
+            ...existing,
+            [action.field]: action.value,
+          },
+        },
+      };
+    }
+
+    case "schedule/updateItem": {
+      const current =
+        state.scheduleOverrides[action.dayId] ??
+        sprintDays.find(d => d.id === action.dayId)?.schedule ??
+        [];
+    
+      const next = current.map((item, index) =>
+        index === action.index ? { ...item, [action.field]: action.value } : item
+      );
+    
+      return {
+        ...state,
+        scheduleOverrides: {
+          ...state.scheduleOverrides,
+          [action.dayId]: next,
+        },
+      };
+    }
+    
+    case "schedule/toggleBreak": {
+      const current =
+        state.scheduleOverrides[action.dayId] ??
+        sprintDays.find(d => d.id === action.dayId)?.schedule ??
+        [];
+    
+      const next = current.map((item, index) =>
+        index === action.index ? { ...item, isBreak: !item.isBreak } : item
+      );
+    
+      return {
+        ...state,
+        scheduleOverrides: {
+          ...state.scheduleOverrides,
+          [action.dayId]: next,
+        },
+      };
+    }
+    
+    case "schedule/addItem": {
+      const current =
+        state.scheduleOverrides[action.dayId] ??
+        sprintDays.find(d => d.id === action.dayId)?.schedule ??
+        [];
+    
+      const next = [
+        ...current,
+        { time: "9:00 AM", title: "New item", duration: "30 min" },
+      ];
+    
+      return {
+        ...state,
+        scheduleOverrides: {
+          ...state.scheduleOverrides,
+          [action.dayId]: next,
+        },
+      };
+    }
+    
+    case "schedule/removeItem": {
+      const current =
+        state.scheduleOverrides[action.dayId] ??
+        sprintDays.find(d => d.id === action.dayId)?.schedule ??
+        [];
+    
+      const next = current.filter((_, index) => index !== action.index);
+    
+      return {
+        ...state,
+        scheduleOverrides: {
+          ...state.scheduleOverrides,
+          [action.dayId]: next,
+        },
+      };
+    }
+    
+case "schedule/moveItem": {
+      const current = [
+        ...(state.scheduleOverrides[action.dayId] ??
+          sprintDays.find(d => d.id === action.dayId)?.schedule ??
+          []),
+      ];
+
+      const targetIndex =
+        action.direction === "up" ? action.index - 1 : action.index + 1;
+
+      if (targetIndex < 0 || targetIndex >= current.length) return state;
+
+      const [item] = current.splice(action.index, 1);
+      current.splice(targetIndex, 0, item);
+
+      return {
+        ...state,
+        scheduleOverrides: {
+          ...state.scheduleOverrides,
+          [action.dayId]: current,
+        },
+      };
+    }
+
+    case "schedule/moveItemToDay": {
+      if (action.fromDayId === action.toDayId) return state;
+
+      const fromDay = sprintDays.find((day) => day.id === action.fromDayId);
+      const toDay = sprintDays.find((day) => day.id === action.toDayId);
+      if (!fromDay || !toDay) return state;
+
+      const fromSchedule = state.scheduleOverrides[action.fromDayId] ?? fromDay.schedule;
+      const toSchedule = state.scheduleOverrides[action.toDayId] ?? toDay.schedule;
+      const item = fromSchedule[action.index];
+      if (!item) return state;
+
+      const movedItem = item.activityId && !item.isBreak
+        ? { ...item, activityDayId: item.activityDayId ?? action.fromDayId }
+        : { ...item };
+
+      return {
+        ...state,
+        scheduleOverrides: {
+          ...state.scheduleOverrides,
+          [action.fromDayId]: fromSchedule.filter((_, index) => index !== action.index),
+          [action.toDayId]: [...toSchedule, movedItem],
+        },
+      };
+    }
+    
+    case "schedule/resetDay": {
+      const nextOverrides = { ...state.scheduleOverrides };
+      delete nextOverrides[action.dayId];
+    
+      return {
+        ...state,
+        scheduleOverrides: nextOverrides,
+      };
+    }
+
     default: {
       return state;
     }
@@ -961,9 +2646,12 @@ function Button({
   );
 }
 
-function Panel({ children, className }: { children: React.ReactNode; className?: string }) {
+function Panel({ children, className, ...props }: React.HTMLAttributes<HTMLElement> & { children: React.ReactNode }) {
   return (
-    <section className={cx("rounded-2xl border border-slate-200 bg-white shadow-[0_1px_3px_rgba(15,23,42,0.06)]", className)}>
+    <section
+      {...props}
+      className={cx("rounded-2xl border border-slate-200 bg-white shadow-[0_1px_3px_rgba(15,23,42,0.06)]", className)}
+    >
       {children}
     </section>
   );
@@ -982,63 +2670,460 @@ function Header({
   onNavigate,
   currentDay,
   sprintName,
+  facilitatorMode,
+  setFacilitatorMode,
 }: {
   page: Page;
   onNavigate: (page: Page) => void;
   currentDay: DayId;
   sprintName: string;
+  facilitatorMode: boolean;
+  setFacilitatorMode: React.Dispatch<React.SetStateAction<boolean>>;
 }) {
   const items = [
     { id: "dashboard" as const, label: "Dashboard", icon: Home },
+    ...(facilitatorMode
+      ? [
+          { id: "repository" as const, label: "Repository", icon: BookOpen },
+          { id: "resources" as const, label: "Resources", icon: BookOpen },
+        ]
+      : []),
     ...sprintDays.map((d) => ({ id: d.id as Page, label: d.label, icon: d.icon, colour: d.colour })),
-    { id: "report" as const, label: "Report", icon: Star },
     { id: "timer" as const, label: "Timer", icon: Clock },
-    { id: "resources" as const, label: "Resources", icon: BookOpen },
   ];
 
+  const nav = (
+    <nav className="w-full min-w-0 max-w-full overflow-x-auto overscroll-x-contain pb-1">
+      <div className="mx-auto flex w-max min-w-max justify-center gap-1">
+        {items.map((item) => {
+          const Icon = item.icon;
+          const active = page === item.id;
+          const c = "colour" in item && item.colour ? colour[item.colour] : undefined;
+
+          return (
+            <button
+              key={item.id}
+              onClick={() => onNavigate(item.id)}
+              className={cx(
+                "inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg px-3 py-2 text-sm font-semibold",
+                active ? "bg-[#070617] text-white" : "text-slate-700 hover:bg-slate-100",
+                active && c?.solid,
+              )}
+            >
+              <Icon className={cx("h-4 w-4", !active && c?.text)} />
+              {item.label}
+            </button>
+          );
+        })}
+      </div>
+    </nav>
+  );
+
   return (
-    <header className="sticky top-0 z-40 border-b bg-white/95 backdrop-blur">
-      <div className="mx-auto flex max-w-[1440px] items-center justify-between px-6 py-3">
-        <button onClick={() => onNavigate("dashboard")} className="flex items-center gap-3">
-          <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-[#070617] text-xs font-black text-white">
+    <header className="sticky top-0 z-40 overflow-x-hidden border-b bg-white/95 backdrop-blur">
+      <div className="mx-auto flex max-w-[1440px] items-center gap-3 px-4 py-3 lg:px-6">
+        <button
+          onClick={() => onNavigate("dashboard")}
+          className="flex min-w-0 flex-1 items-center gap-3 text-left"
+        >
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-[#070617] text-xs font-black text-white">
             DS
           </span>
-          <div className="hidden sm:block text-left">
+          <div className="min-w-0">
             <div className="text-sm font-black leading-5">Sprintpilot</div>
-            <div className="text-xs font-semibold text-slate-500">{sprintName || "Design Sprint"}</div>
+            <div className="max-w-[14rem] truncate text-xs font-semibold text-slate-500 sm:max-w-[18rem] xl:max-w-none">
+              {sprintName || "Design Sprint"}
+            </div>
           </div>
         </button>
 
-        <nav className="hidden items-center gap-1 lg:flex">
-          {items.map((item) => {
-            const Icon = item.icon;
-            const active = page === item.id;
-            const c = "colour" in item && item.colour ? colour[item.colour] : undefined;
-            return (
-              <button
-                key={item.id}
-                onClick={() => onNavigate(item.id)}
-                className={cx(
-                  "inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold",
-                  active ? "bg-[#070617] text-white" : "text-slate-700 hover:bg-slate-100",
-                  active && c?.solid,
-                )}
-              >
-                <Icon className={cx("h-4 w-4", !active && c?.text)} />
-                {item.label}
-              </button>
-            );
-          })}
-        </nav>
+        {!facilitatorMode ? (
+          <div className="hidden min-w-0 flex-1 justify-center lg:flex">
+            {nav}
+          </div>
+        ) : null}
 
-        <div className="flex items-center gap-2">
-          <span className="rounded-lg border px-3 py-1 text-xs font-bold">Sprint Day {currentDay.replace("day", "")}/4</span>
-          <Button variant="secondary" className="hidden px-3 py-1.5 sm:flex">
-            <Settings className="h-4 w-4" /> Settings
+        <div className="ml-auto flex shrink-0 items-center gap-2">
+          <span className="hidden rounded-lg border px-3 py-1 text-xs font-bold xl:inline-flex">
+            Day {currentDay.replace("day", "")}/4
+          </span>
+          <Button
+            variant={facilitatorMode ? "primary" : "secondary"}
+            className="whitespace-nowrap px-3 py-1.5"
+            onClick={() => {
+              if (facilitatorMode) {
+                setFacilitatorMode(false);
+                if (page === "resources" || page === "repository" || page === "report") onNavigate("dashboard");
+                return;
+              }
+
+              setFacilitatorMode(true);
+            }}
+          >
+            <Wrench className="h-4 w-4" />
+            Facilitator
+            {facilitatorMode ? <span className="rounded-full bg-white/15 px-1.5 py-0.5 text-[10px] font-black">ON</span> : null}
+          </Button>
+          <Button variant="secondary" className="hidden px-3 py-1.5 sm:flex" aria-label="Settings">
+            <Settings className="h-4 w-4" />
           </Button>
         </div>
       </div>
+
+      {facilitatorMode ? (
+        <div className="border-t bg-white/95 px-4 py-2 lg:px-6 xl:hidden">
+          {nav}
+        </div>
+      ) : null}
+
+      {facilitatorMode ? (
+        <div className="hidden border-t bg-white/95 xl:block">
+          <div className="mx-auto max-w-[1440px] px-6 py-2">
+            {nav}
+          </div>
+        </div>
+      ) : null}
     </header>
+  );
+}
+
+function RepositoryPage({
+  activeSessionId,
+  currentState,
+  dispatch,
+  setActiveSessionId,
+  onNavigate,
+}: {
+  activeSessionId: string | null;
+  currentState: AppState;
+  dispatch: React.Dispatch<Action>;
+  setActiveSessionId: React.Dispatch<React.SetStateAction<string | null>>;
+  onNavigate: (page: Page) => void;
+}) {
+  const [sessions, setSessions] = useState<SprintSession[]>([]);
+
+  const refreshSessions = async () => {
+    const cloudSessions = await fetchCloudSessions();
+  
+    if (cloudSessions.length > 0) {
+      setSessions(cloudSessions);
+      writeStoredSessions(cloudSessions);
+      return;
+    }
+  
+    setSessions(readStoredSessions().sort((a, b) => b.updatedAt - a.updatedAt));
+  };
+
+  useEffect(() => {
+    void refreshSessions();
+  }, []);
+
+  const saveCurrentSession = () => {
+    if (activeSessionId) saveSessionState(activeSessionId, currentState);
+  };
+
+  const openSession = (session: SprintSession) => {
+    saveCurrentSession();
+    window.localStorage.setItem(SPRINTPILOT_ACTIVE_SESSION_KEY, session.id);
+    setActiveSessionId(session.id);
+    dispatch({ type: "session/replace", state: session.state });
+    onNavigate("dashboard");
+  };
+
+  const createNewSession = async () => {
+    saveCurrentSession();
+
+    const nextState: AppState = {
+      ...initialState,
+      sprintName: "Untitled design sprint",
+      challenge: "",
+      targetUsers: "",
+      desiredOutcome: "",
+      completed: [],
+      notes: {},
+      artefacts: {},
+      hmws: [],
+      testingSessions: {},
+      runningActivityId: undefined,
+    };
+
+    const cloudSession = await createCloudSession(nextState, "draft");
+    const newSession = cloudSession ?? createSprintSession(nextState, { status: "draft" });
+
+    writeStoredSessions([newSession, ...readStoredSessions().filter((session) => session.id !== newSession.id)]);
+    window.localStorage.setItem(SPRINTPILOT_ACTIVE_SESSION_KEY, newSession.id);
+    setActiveSessionId(newSession.id);
+    dispatch({ type: "session/replace", state: newSession.state });
+    await refreshSessions();
+    onNavigate("dashboard");
+  };
+
+  // --- Repository v1 Pass 1C controls ---
+  const duplicateSession = async (session: SprintSession) => {
+    saveCurrentSession();
+
+    const duplicatedState: AppState = {
+      ...session.state,
+      sprintName: `${session.name || session.state.sprintName || "Untitled sprint"} copy`,
+      runningActivityId: undefined,
+    };
+
+    const cloudSession = await createCloudSession(duplicatedState, "draft");
+    const duplicated = cloudSession ?? createSprintSession(duplicatedState, { status: "draft" });
+
+    writeStoredSessions([duplicated, ...readStoredSessions().filter((item) => item.id !== duplicated.id)]);
+    await refreshSessions();
+  };
+
+  const updateSessionStatus = async (session: SprintSession, status: SprintSessionStatus) => {
+    await updateCloudSession(session.cloudId ?? session.id, session.state, status);
+
+    const nextSessions = readStoredSessions().map((item) =>
+      item.id === session.id ? { ...item, status, updatedAt: Date.now() } : item,
+    );
+
+    writeStoredSessions(nextSessions);
+    await refreshSessions();
+  };
+
+  const archiveSession = async (session: SprintSession) => {
+    if (session.id === activeSessionId) return;
+    await updateSessionStatus(session, "archived");
+  };
+
+  const deleteArchivedSession = async (session: SprintSession) => {
+    if (session.id === activeSessionId) return;
+
+    if (supabase) {
+      const { error } = await supabase.from("sprint_sessions").delete().eq("id", session.cloudId ?? session.id);
+      if (error) console.error("Failed to delete cloud sprint session", error);
+    }
+
+    writeStoredSessions(readStoredSessions().filter((item) => item.id !== session.id));
+    await refreshSessions();
+  };
+
+  const visibleSessions = sessions.filter((session) => session.status !== "archived");
+  const archivedSessions = sessions.filter((session) => session.status === "archived");
+  const liveCount = sessions.filter((session) => session.status === "live").length;
+  const completedCount = sessions.filter((session) => session.status === "complete").length;
+
+  return (
+    <main className="mx-auto max-w-[1280px] px-6 py-8">
+      <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+        <div>
+          <div className="inline-flex rounded-full border bg-white px-3 py-1 text-xs font-black uppercase tracking-wide text-slate-500">
+            Facilitator workspace
+          </div>
+          <h1 className="mt-3 text-3xl font-black tracking-tight">Sprint Repository</h1>
+          <p className="mt-2 max-w-3xl text-slate-600">
+            Save, reopen, duplicate, archive, and manage design sprint sessions locally. This area is hidden from participant mode.
+          </p>
+        </div>
+        <Button onClick={createNewSession}>
+          <Plus className="h-4 w-4" /> New sprint
+        </Button>
+      </div>
+
+      <div className="mt-6 grid gap-4 md:grid-cols-4">
+        <Panel className="p-5">
+          <div className="text-2xl font-black">{visibleSessions.length}</div>
+          <div className="mt-1 text-sm font-semibold text-slate-500">Saved sprints</div>
+        </Panel>
+        <Panel className="p-5">
+          <div className="text-2xl font-black">{liveCount}</div>
+          <div className="mt-1 text-sm font-semibold text-slate-500">Live</div>
+        </Panel>
+        <Panel className="p-5">
+          <div className="text-2xl font-black">{completedCount}</div>
+          <div className="mt-1 text-sm font-semibold text-slate-500">Complete</div>
+        </Panel>
+        <Panel className="p-5">
+          <div className="text-2xl font-black">{archivedSessions.length}</div>
+          <div className="mt-1 text-sm font-semibold text-slate-500">Archived</div>
+        </Panel>
+      </div>
+
+      <div className="mt-6 space-y-4">
+        {visibleSessions.length === 0 ? (
+          <Panel className="p-8 text-center">
+            <h2 className="text-xl font-black">No saved sprints yet</h2>
+            <p className="mt-2 text-slate-500">Create a new sprint to start building your repository.</p>
+            <Button className="mt-4" onClick={createNewSession}>
+              <Plus className="h-4 w-4" /> New sprint
+            </Button>
+          </Panel>
+        ) : (
+          visibleSessions.map((session) => {
+            const isActive = activeSessionId === session.id;
+            const progressCount = session.state.completed.length;
+            const artefactCount = Object.values(session.state.artefacts).reduce((total, items) => total + items.length, 0);
+            const updated = new Date(session.updatedAt).toLocaleString();
+            const challenge = session.state.challenge || "No challenge statement added yet.";
+
+            return (
+              <Panel key={session.id} className={cx("p-5", isActive && "border-2 border-emerald-500 bg-emerald-50/40")}>
+                <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h2 className="truncate text-xl font-black">{session.name || session.state.sprintName || "Untitled sprint"}</h2>
+                      {isActive ? <span className="rounded-full bg-emerald-100 px-2 py-1 text-xs font-black text-emerald-700">Current</span> : null}
+                      <span className="rounded-full bg-slate-100 px-2 py-1 text-xs font-black capitalize text-slate-600">{session.status}</span>
+                    </div>
+                    <p className="mt-2 line-clamp-2 text-sm leading-6 text-slate-600">{challenge}</p>
+                    <div className="mt-3 flex flex-wrap gap-3 text-xs font-semibold text-slate-500">
+                      <span>Updated {updated}</span>
+                      <span>{dayLabel(session.state.currentDay)}</span>
+                      <span>{progressCount} completed activities</span>
+                      <span>{session.state.hmws.length} HMWs</span>
+                      <span>{artefactCount} artefacts</span>
+                      <span>{session.cloudId ? "Cloud synced" : "Local only"}</span>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap gap-2">
+                    <Button variant="secondary" onClick={() => openSession(session)}>
+                      <Eye className="h-4 w-4" /> Open
+                    </Button>
+                    <Button variant="secondary" onClick={() => duplicateSession(session)}>
+                      <Copy className="h-4 w-4" /> Duplicate
+                    </Button>
+                    <select
+                      value={session.status}
+                      onChange={(event) => updateSessionStatus(session, event.target.value as SprintSessionStatus)}
+                      className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 outline-none focus:ring-2 focus:ring-slate-950 focus:ring-offset-2"
+                      aria-label="Sprint status"
+                    >
+                      <option value="draft">Draft</option>
+                      <option value="live">Live</option>
+                      <option value="complete">Complete</option>
+                      <option value="archived">Archived</option>
+                    </select>
+                    <Button
+                      variant="ghost"
+                      onClick={() => archiveSession(session)}
+                      disabled={isActive}
+                      title={isActive ? "Open another sprint before archiving this one" : "Archive sprint"}
+                    >
+                      Archive
+                    </Button>
+                  </div>
+                </div>
+              </Panel>
+            );
+          })
+        )}
+      </div>
+      {archivedSessions.length > 0 ? (
+        <details className="mt-6 rounded-2xl border bg-white p-5">
+          <summary className="cursor-pointer font-black">Archived sprints ({archivedSessions.length})</summary>
+          <div className="mt-4 space-y-3">
+            {archivedSessions.map((session) => (
+              <div key={session.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-slate-50 p-3">
+                <div>
+                  <div className="font-black">{session.name || session.state.sprintName || "Untitled sprint"}</div>
+                  <div className="text-sm text-slate-500">Updated {new Date(session.updatedAt).toLocaleString()}</div>
+                </div>
+                <div className="flex gap-2">
+                  <Button variant="secondary" onClick={() => updateSessionStatus(session, "draft")}>Restore</Button>
+                  <Button variant="secondary" onClick={() => duplicateSession(session)}>Duplicate</Button>
+                  <Button variant="ghost" onClick={() => deleteArchivedSession(session)}>Delete</Button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </details>
+      ) : null}
+    </main>
+  );
+}
+
+function ParticipantView({ state }: { state: AppState }) {
+  const activeContext = useMemo(() => {
+    if (!state.runningActivityId) return null;
+
+    for (const day of sprintDays) {
+      const activity = day.activities.find((a) => activityKey(day.id, a.id) === state.runningActivityId);
+      if (activity) return { day, activity };
+    }
+
+    return null;
+  }, [state.runningActivityId]);
+
+  const day = activeContext?.day ?? sprintDays.find((item) => item.id === state.currentDay) ?? sprintDays[0];
+  const activity = activeContext?.activity;
+  const Icon = day.icon;
+  const c = colour[day.colour];
+
+  return (
+    <main className="min-h-screen bg-[#05060f] px-6 py-8 text-white">
+      <div className="mx-auto flex max-w-[1280px] items-center justify-center gap-4">
+        <div className="flex items-center gap-3">
+          <div className={cx("flex h-11 w-11 items-center justify-center rounded-2xl", c.solid)}>
+            <Icon className="h-5 w-5" />
+          </div>
+          <div>
+            <div className="text-sm font-black uppercase tracking-wide text-white/50">Live Sprint</div>
+            <div className="text-lg font-black">{day.label}: {day.title.replace(`${day.label}: `, "")}</div>
+          </div>
+        </div>
+      </div>
+
+      <section className="mx-auto mt-10 flex max-w-[1100px] flex-col items-center justify-center rounded-[2rem] border border-white/10 bg-white/[0.04] px-8 py-14 text-center shadow-2xl md:min-h-[620px] md:px-16">
+        {activity ? (
+          <>
+            <div className={cx("rounded-full border px-4 py-2 text-sm font-black", c.soft)}>
+              {day.label} activity now running
+            </div>
+            <h1 className="mt-8 max-w-4xl text-5xl font-black tracking-tight md:text-7xl">{activity.title}</h1>
+            <p className="mt-6 max-w-3xl text-xl leading-9 text-white/75">{activity.description}</p>
+
+            <div className="mt-8 rounded-[2rem] border border-white/10 bg-white/10 px-10 py-6 shadow-xl">
+              <div className="text-xs font-black uppercase tracking-[0.3em] text-white/50">Timebox</div>
+              <div className="mt-3 text-5xl font-black tracking-tight text-white md:text-7xl">{activity.duration}</div>
+            </div>
+
+            <div className="mt-10 grid w-full max-w-4xl gap-4 md:grid-cols-2">
+              <div className="rounded-2xl border border-white/10 bg-white/10 p-5">
+                <div className="text-xs font-black uppercase tracking-wide text-white/50">Participants</div>
+                <div className="mt-2 text-lg font-black">{activity.participants}</div>
+              </div>
+              <div className="rounded-2xl border border-white/10 bg-white/10 p-5">
+                <div className="text-xs font-black uppercase tracking-wide text-white/50">Output</div>
+                <div className="mt-2 text-lg font-black">{activity.deliverable}</div>
+              </div>
+            </div>
+
+            <div className="mt-10 w-full max-w-4xl rounded-3xl border border-white/10 bg-[#05060f] p-6 text-left">
+              <div className="text-sm font-black uppercase tracking-wide text-white/50">What we are doing now</div>
+              <ul className="mt-4 grid gap-3 text-base leading-7 text-white/80 md:grid-cols-2">
+                {activity.tips.slice(0, 4).map((tip) => (
+                  <li key={tip} className="flex gap-3">
+                    <CheckCircle2 className="mt-1 h-5 w-5 shrink-0 text-emerald-400" />
+                    <span>{tip}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="rounded-full border border-white/10 bg-white/10 px-4 py-2 text-sm font-black uppercase tracking-wide text-white/60">
+              Waiting to start
+            </div>
+            <h1 className="mt-8 max-w-4xl text-5xl font-black tracking-tight md:text-7xl">Ready for the next activity</h1>
+            <p className="mt-6 max-w-3xl text-xl leading-9 text-white/75">
+              The facilitator will start an activity from the console. This screen will update to show the room what is happening now.
+            </p>
+            <div className="mt-10 rounded-3xl border border-white/10 bg-white/10 p-6">
+              <div className="text-xs font-black uppercase tracking-wide text-white/50">Current sprint day</div>
+              <div className="mt-2 text-2xl font-black">{day.title}</div>
+              <div className="mt-2 text-white/70">{day.subtitle}</div>
+            </div>
+          </>
+        )}
+      </section>
+    </main>
   );
 }
 
@@ -1047,12 +3132,15 @@ function Dashboard({
   dispatch,
   onNavigate,
   openHmw,
+  facilitatorMode,
 }: {
   state: AppState;
   dispatch: React.Dispatch<Action>;
   onNavigate: (page: Page) => void;
   openHmw: () => void;
+  facilitatorMode: boolean;
 }) {
+
   const allKeys = useMemo(() => {
     const keys: string[] = [];
     for (const day of sprintDays) {
@@ -1062,18 +3150,43 @@ function Dashboard({
   }, []);
 
   const progress = useMemo(() => {
-    const progressed = allKeys.filter(
-      (k) =>
-        state.completed.includes(k) ||
-        state.runningActivityId === k ||
-        (state.notes[k] ?? "").trim().length > 0 ||
-        (state.artefacts[k] ?? []).length > 0,
+    const dayProgress = sprintDays.map((day) => {
+      const schedule = state.scheduleOverrides[day.id] ?? day.schedule;
+  
+      const scheduledKeys = schedule
+        .filter((item) => !item.isBreak)
+        .map((item) => getActivityForScheduleItem(day, item))
+        .filter((resolved): resolved is { day: SprintDay; activity: Activity } => Boolean(resolved))
+        .map((resolved) => activityKey(resolved.day.id, resolved.activity.id));
+  
+      const uniqueScheduledKeys = Array.from(new Set(scheduledKeys));
+      const completedCount = uniqueScheduledKeys.filter((key) => state.completed.includes(key)).length;
+      const totalCount = uniqueScheduledKeys.length;
+      const dayPct = totalCount > 0 ? completedCount / totalCount : 0;
+  
+      return {
+        dayId: day.id,
+        total: totalCount,
+        completed: completedCount,
+        pct: dayPct,
+      };
+    });
+  
+    const completedActivities = dayProgress.reduce((sum, day) => sum + day.completed, 0);
+    const totalActivities = dayProgress.reduce((sum, day) => sum + day.total, 0);
+  
+    const pct = dayProgress.reduce(
+      (sum, day) => sum + day.pct * (100 / sprintDays.length),
+      0,
     );
-    const total = allKeys.length;
-    const count = progressed.length;
-    const pct = total === 0 ? 0 : Math.round((count / total) * 100);
-    return { total, count, pct };
-  }, [allKeys, state.completed, state.notes, state.artefacts, state.runningActivityId]);
+  
+    return {
+      total: totalActivities,
+      count: completedActivities,
+      pct: Math.round(Math.max(0, Math.min(100, pct))),
+      dayProgress,
+    };
+  }, [state.completed, state.scheduleOverrides]);
 
   const activeActivity = useMemo(() => {
     if (!state.runningActivityId) return null;
@@ -1084,14 +3197,651 @@ function Dashboard({
     return null;
   }, [state.runningActivityId]);
 
+  const activeActivityKey = activeActivity ? activityKey(activeActivity.day.id, activeActivity.activity.id) : undefined;
+  const activeActivityIsComplete = activeActivityKey ? state.completed.includes(activeActivityKey) : false;
+  const activeScheduleItem = activeActivity
+    ? (state.scheduleOverrides[activeActivity.day.id] ?? activeActivity.day.schedule).find((item) => {
+        if (item.isBreak) return false;
+        if (item.activityId === activeActivity.activity.id) return true;
+
+        const scheduleTitle = item.title.toLowerCase();
+        const activityTitle = activeActivity.activity.title.toLowerCase();
+        return scheduleTitle.includes(activityTitle) || activityTitle.includes(scheduleTitle);
+      })
+    : undefined;
+  const activeDurationLabel = activeScheduleItem?.duration ?? activeActivity?.activity.duration;
+  const activeDisplayTitle = activeScheduleItem?.title ?? activeActivity?.activity.title;
+  const countdown = useActivityCountdown(state);
+  const nextRunnableActivity = useMemo(() => {
+    const currentDayIndex = sprintDays.findIndex((day) => day.id === state.currentDay);
+    const orderedDays = currentDayIndex >= 0
+      ? [...sprintDays.slice(currentDayIndex), ...sprintDays.slice(0, currentDayIndex)]
+      : sprintDays;
+
+    for (const day of orderedDays) {
+      const schedule = state.scheduleOverrides[day.id] ?? day.schedule;
+
+      for (const item of schedule) {
+        if (item.isBreak) continue;
+
+        const resolved = getActivityForScheduleItem(day, item);
+        if (!resolved) continue;
+
+        const key = activityKey(resolved.day.id, resolved.activity.id);
+        if (!state.completed.includes(key)) {
+          return { day: resolved.day, activity: resolved.activity, key };
+        }
+      }
+    }
+
+    return null;
+  }, [state.completed, state.currentDay, state.scheduleOverrides]);
+
+  // --- Auto-scroll running activity into view in Today's schedule ---
+const todayScheduleScrollRef = useRef<HTMLDivElement | null>(null);
+const todayScheduleItemRefs = useRef<Record<string, HTMLDivElement | null>>({});
+
+useEffect(() => {
+  const runningActivityId = state.runningActivityId;
+  if (!runningActivityId) return;
+
+  const timer = window.setTimeout(() => {
+    const container = todayScheduleScrollRef.current;
+    const activeScheduleItem = todayScheduleItemRefs.current[runningActivityId];
+    if (!container || !activeScheduleItem) return;
+
+    const containerRect = container.getBoundingClientRect();
+    const itemRect = activeScheduleItem.getBoundingClientRect();
+    const scrollOffset =
+      itemRect.top -
+      containerRect.top +
+      container.scrollTop -
+      container.clientHeight / 2 +
+      itemRect.height / 2;
+
+    container.scrollTo({
+      top: Math.max(0, scrollOffset),
+      behavior: "smooth",
+    });
+  }, 150);
+
+  return () => window.clearTimeout(timer);
+}, [state.runningActivityId]);
+
+  // Participant colour tone helper
+  const participantColour = activeActivity?.day.colour ?? sprintDays.find((day) => day.id === state.currentDay)?.colour ?? "green";
+  const participantTone =
+    participantColour === "blue"
+      ? {
+          page: "bg-[#05060f]",
+          card: "border-blue-400/30 bg-blue-400/10",
+          pill: "bg-blue-300 text-slate-950",
+          timerText: "text-blue-300",
+          progress: "bg-blue-300",
+          softText: "text-blue-50",
+          softLabel: "text-blue-100",
+        }
+      : participantColour === "orange"
+      ? {
+          page: "bg-[#05060f]",
+          card: "border-orange-400/30 bg-orange-400/10",
+          pill: "bg-orange-300 text-slate-950",
+          timerText: "text-orange-300",
+          progress: "bg-orange-300",
+          softText: "text-orange-50",
+          softLabel: "text-orange-100",
+        }
+      : participantColour === "purple"
+      ? {
+          page: "bg-[#05060f]",
+          card: "border-purple-400/30 bg-purple-400/10",
+          pill: "bg-purple-300 text-slate-950",
+          timerText: "text-purple-300",
+          progress: "bg-purple-300",
+          softText: "text-purple-50",
+          softLabel: "text-purple-100",
+        }
+      : {
+          page: "bg-[#05060f]",
+          card: "border-emerald-400/30 bg-emerald-400/10",
+          pill: "bg-emerald-300 text-slate-950",
+          timerText: "text-emerald-300",
+          progress: "bg-emerald-300",
+          softText: "text-emerald-50",
+          softLabel: "text-emerald-100",
+        };
+
+  // Alarm effect for participant dashboard timer
+  const alarmKeyRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (facilitatorMode || !activeActivityKey || !state.runningActivityStartedAt) return;
+
+    const alarmKey = `${activeActivityKey}-${state.runningActivityStartedAt}-${state.runningActivityDurationSeconds ?? 0}`;
+
+    if (!countdown.isOvertime || alarmKeyRef.current === alarmKey) return;
+
+    alarmKeyRef.current = alarmKey;
+
+    const AudioContextClass = window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!AudioContextClass) return;
+
+    const audioContext = new AudioContextClass();
+    const beepTimes = [0, 0.45, 0.9, 1.35, 1.8];
+
+    beepTimes.forEach((time) => {
+      const oscillator = audioContext.createOscillator();
+      const gain = audioContext.createGain();
+
+      oscillator.type = "sine";
+      oscillator.frequency.setValueAtTime(880, audioContext.currentTime + time);
+      gain.gain.setValueAtTime(0.0001, audioContext.currentTime + time);
+      gain.gain.exponentialRampToValueAtTime(0.25, audioContext.currentTime + time + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, audioContext.currentTime + time + 0.22);
+
+      oscillator.connect(gain);
+      gain.connect(audioContext.destination);
+      oscillator.start(audioContext.currentTime + time);
+      oscillator.stop(audioContext.currentTime + time + 0.24);
+    });
+
+    window.setTimeout(() => {
+      void audioContext.close();
+    }, 2600);
+  }, [activeActivityKey, countdown.isOvertime, facilitatorMode, state.runningActivityDurationSeconds, state.runningActivityStartedAt]);
+
+  if (!facilitatorMode) {
+    const waitingMessage = (() => {
+      const currentDay = sprintDays.find((day) => day.id === state.currentDay) ?? sprintDays[0];
+      const daySchedule = state.scheduleOverrides[currentDay.id] ?? currentDay.schedule;
+      const completed = new Set(state.completed);
+
+      const runnableItems = daySchedule
+        .map((item) => ({ item, resolved: item.isBreak ? null : getActivityForScheduleItem(currentDay, item) }))
+        .filter((entry): entry is { item: any; resolved: { day: SprintDay; activity: Activity } } => Boolean(entry.resolved));
+
+      const completedActivityCount = runnableItems.filter((entry) => completed.has(activityKey(entry.resolved.day.id, entry.resolved.activity.id))).length;
+      const nextRunnableItem = runnableItems.find((entry) => !completed.has(activityKey(entry.resolved.day.id, entry.resolved.activity.id)));
+      const nextTitle = nextRunnableItem?.item.title ?? nextRunnableItem?.resolved.activity.title;
+      const allActivitiesComplete = runnableItems.length > 0 && completedActivityCount >= runnableItems.length;
+
+      if (allActivitiesComplete) {
+        return {
+          eyebrow: "Day complete",
+          title: `Great work — ${currentDay.label} is wrapped up 🎉`,
+          body: "Your facilitator will guide the next step when the team is ready.",
+        };
+      }
+
+      if (completedActivityCount === 0) {
+        return {
+          eyebrow: "Waiting",
+          title: "Your friendly facilitator will start the activity shortly 🤓",
+          body: nextTitle
+            ? `First up: ${nextTitle}. Keep this screen visible for the sprint flow.`
+            : "Keep this screen visible for the current activity, instructions, and sprint flow.",
+        };
+      }
+
+      // Day 1
+      if (currentDay.id === "day1") {
+        const day1Messages = [
+          {
+            eyebrow: "Momentum building",
+            title: nextTitle ? `Next up: ${nextTitle}.` : "The sprint is gathering momentum.",
+            body: "The room is building a shared understanding of the challenge before moving into solution creation.",
+          },
+          {
+            eyebrow: "Ideas taking shape",
+            title: nextTitle ? `The team is ready to move into ${nextTitle}.` : "The team is moving into solution work.",
+            body: "Insights are beginning to turn into themes, opportunities, and early solution directions.",
+          },
+          {
+            eyebrow: "Creative energy",
+            title: nextTitle ? `${nextTitle} is coming up next.` : "The sprint is moving into ideation.",
+            body: "Different perspectives and rough concepts are starting to evolve into stronger ideas.",
+          },
+        ];
+        return day1Messages[completedActivityCount % day1Messages.length];
+      }
+
+      // Day 2
+      if (currentDay.id === "day2") {
+        const day2Messages = [
+          {
+            eyebrow: "Decision time",
+            title: nextTitle ? `Next up: ${nextTitle}.` : "The team is narrowing in on a direction.",
+            body: "Today is about choosing carefully and aligning around one approach worth testing.",
+          },
+          {
+            eyebrow: "Story taking shape",
+            title: nextTitle ? `${nextTitle} is coming up shortly.` : "The storyboard is coming together.",
+            body: "The sprint is shifting from abstract ideas into a concrete experience users can move through.",
+          },
+          {
+            eyebrow: "Aligning the experience",
+            title: nextTitle ? `The room is preparing for ${nextTitle}.` : "The experience flow is becoming clearer.",
+            body: "Every step is helping the team shape one joined-up user journey for prototyping tomorrow.",
+          },
+        ];
+        return day2Messages[completedActivityCount % day2Messages.length];
+      }
+
+      // Day 3
+      if (currentDay.id === "day3") {
+        const day3Messages = [
+          {
+            eyebrow: "Prototype mode",
+            title: nextTitle ? `Next up: ${nextTitle}.` : "The prototype build is underway.",
+            body: "The focus today is speed, clarity, and realism — not perfection.",
+          },
+          {
+            eyebrow: "Building together",
+            title: nextTitle ? `${nextTitle} is up next.` : "The prototype is evolving quickly.",
+            body: "Different pieces are starting to connect into a believable experience users can react to.",
+          },
+          {
+            eyebrow: "Making it tangible",
+            title: nextTitle ? `The team is moving into ${nextTitle}.` : "The prototype is taking shape.",
+            body: "The sprint is transforming ideas from the storyboard into something visible and testable.",
+          },
+        ];
+        return day3Messages[completedActivityCount % day3Messages.length];
+      }
+
+      // Day 4 (default)
+      const day4Messages = [
+        {
+          eyebrow: "Listening closely",
+          title: nextTitle ? `Next up: ${nextTitle}.` : "User feedback is starting to surface.",
+          body: "The most useful insights often come from moments of hesitation, confusion, or surprise.",
+        },
+        {
+          eyebrow: "Real reactions",
+          title: nextTitle ? `${nextTitle} is coming up next.` : "The team is gathering live evidence.",
+          body: "Today replaces assumptions with direct observation and honest user behaviour.",
+        },
+        {
+          eyebrow: "Evidence gathering",
+          title: nextTitle ? `The room is preparing for ${nextTitle}.` : "The sprint is uncovering valuable signals.",
+          body: "Patterns are beginning to emerge that will help the team decide what happens after the sprint.",
+        },
+      ];
+      return day4Messages[completedActivityCount % day4Messages.length];
+    })();
+
+    return (
+      <main className={cx("relative min-h-[calc(100vh-68px)] overflow-hidden px-5 py-8 text-white sm:px-6 md:px-10 lg:px-16", participantTone.page)}>
+        <div
+          className={cx(
+            "absolute right-4 top-6 z-10 max-w-[calc(100vw-2rem)] rounded-[1.5rem] border border-white/10 bg-[#0b1020]/80 px-5 py-4 text-right shadow-2xl shadow-black/40 backdrop-blur-xl transition-all duration-700 sm:right-6 lg:right-10 xl:right-14",
+            countdown.isOvertime && "animate-pulse !border-red-300/40 !bg-red-400/15",
+          )}
+        >
+          <div className={cx("text-center text-[10px] font-black uppercase tracking-[0.25em]", countdown.isOvertime ? "text-red-200" : "text-slate-300")}>
+            {activeActivity ? (countdown.isOvertime ? "Time's up" : "Time remaining") : "Timer"}
+          </div>
+          <button
+            type="button"
+            onClick={() => onNavigate("timer")}
+            className={cx(
+              "mt-1 block w-full cursor-pointer rounded-xl text-center text-4xl font-black leading-none transition-all duration-500 hover:bg-white/10 focus:outline-none focus:ring-2 focus:ring-white/40",
+              countdown.isOvertime ? "text-red-300" : participantTone.timerText,
+            )}
+            aria-label="Open timer page"
+          >
+            {activeActivity ? formatCountdown(countdown.remainingSeconds) : "--:--"}
+          </button>
+          <div className="mt-2 text-center text-xs font-semibold text-slate-300">
+            {activeActivity ? activeDurationLabel : "Starts with activity"}
+          </div>
+          {activeActivity ? (
+            <div className="mt-3 w-40">
+              <div className="flex justify-between text-[10px] font-bold text-slate-400">
+                <span>Start</span>
+                <span>End</span>
+              </div>
+              <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-white/15">
+                <div
+                  className={cx("h-full rounded-full transition-all duration-700 ease-out", countdown.isOvertime ? "bg-red-300" : participantTone.progress)}
+                  style={{ width: `${countdown.isOvertime ? 100 : countdown.progressPercent}%` }}
+                />
+              </div>
+            </div>
+          ) : null}
+        </div>
+<div
+  className={cx(
+    "mx-auto flex min-h-[calc(100vh-150px)] max-w-[1360px]",
+    activeActivity ? "items-start pt-24 md:pt-28 lg:pt-4" : "items-center pt-8 md:pt-10 lg:pt-0",
+  )}
+>
+          <section className="grid w-full min-w-0 gap-10 lg:grid-cols-[minmax(0,1.2fr)_minmax(340px,0.8fr)] lg:items-start xl:gap-14">
+            <div
+              className={cx(
+                "min-w-0 max-w-none self-start pr-0 lg:max-w-[980px] lg:self-start lg:pr-14",
+                activeActivity ? "lg:pt-10 xl:pt-16" : "lg:pt-0",
+              )}
+            >
+
+              <h1 className="mt-0 max-w-5xl text-5xl font-black leading-none tracking-tight sm:text-6xl md:text-7xl lg:text-[4.75rem] xl:text-[5.6rem]">
+                {state.sprintName || "Design Sprint"}
+              </h1>
+
+              <p className="mt-6 max-w-4xl text-xl leading-8 text-slate-300 sm:text-2xl sm:leading-9 lg:max-w-3xl xl:mt-8">
+                {state.challenge || "Follow the facilitator’s lead as the sprint moves through each activity."}
+              </p>
+
+              {activeActivity ? (
+                <div className={cx("mt-8 max-w-4xl rounded-[2rem] border p-6 shadow-2xl shadow-black/20 lg:max-w-[760px] lg:p-7 xl:mt-12", participantTone.card)}>
+                  <div className="flex flex-wrap items-center gap-3">
+                    <span className={cx("rounded-full px-4 py-2 text-xs font-black uppercase tracking-wide", participantTone.pill)}>
+                      Now in play
+                    </span>
+                    <span className="rounded-full bg-white/10 px-4 py-2 text-sm font-black text-white">
+                      {activeActivity.day.label}
+                    </span>
+                    <span className="rounded-full bg-white/10 px-4 py-2 text-sm font-black text-white">
+                      {activeDurationLabel}
+                    </span>
+                    {activeActivityIsComplete ? (
+                      <span className="rounded-full bg-white px-4 py-2 text-sm font-black text-slate-950">Completed</span>
+                    ) : null}
+                  </div>
+
+                  <h2 className="mt-7 text-4xl font-black tracking-tight md:text-5xl">{activeDisplayTitle}</h2>
+                  <p className={cx("mt-5 max-w-3xl text-lg leading-8", participantTone.softText)}>{activeActivity.activity.description}</p>
+
+                  <div className="mt-7 rounded-2xl bg-white/10 p-5">
+                    <div className={cx("text-xs font-black uppercase tracking-wide", participantTone.softLabel)}>What we’re aiming to produce</div>
+                    <p className="mt-3 text-xl font-bold leading-8 text-white">{activeActivity.activity.deliverable}</p>
+                  </div>
+
+                  <Button
+                    className="mt-7 bg-white text-slate-950 hover:bg-slate-100"
+                    variant="secondary"
+                    onClick={() => {
+                      onNavigate(activeActivity.day.id);
+                      window.setTimeout(() => {
+                        window.dispatchEvent(
+                          new CustomEvent("sprintpilot:viewActivity", {
+                            detail: { dayId: activeActivity.day.id, activityId: activeActivity.activity.id },
+                          }),
+                        );
+                      }, 0);
+                    }}
+                  >
+                    <Play className="h-4 w-4" /> View activity
+                  </Button>
+                </div>
+              ) : (
+                <div className="mt-8 max-w-4xl rounded-[2rem] border border-white/10 bg-white/5 p-7 lg:max-w-[760px] xl:mt-12">
+                  <div className="text-xs font-black uppercase tracking-wide text-slate-400">{waitingMessage.eyebrow}</div>
+                  <h2 className="mt-4 text-4xl font-black">{waitingMessage.title}</h2>
+                  <p className="mt-4 max-w-2xl text-lg leading-8 text-slate-300">{waitingMessage.body}</p>
+                </div>
+              )}
+            </div>
+
+            {(() => {
+  const scheduleDay = activeActivity?.day ?? sprintDays.find((item) => item.id === state.currentDay) ?? sprintDays[0];
+  const schedule = state.scheduleOverrides[scheduleDay.id] ?? scheduleDay.schedule;
+  const scheduleColour = colour[scheduleDay.colour];
+
+  return (
+    <aside className="min-w-0 self-center rounded-[2rem] bg-white p-6 text-slate-950 shadow-2xl shadow-black/30 sm:p-7 lg:self-center lg:p-8">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h2 className="text-xl font-black">Today’s schedule</h2>
+          <p className="mt-1 text-sm font-semibold text-slate-500">
+            {scheduleDay.label}: {scheduleDay.title.replace(`${scheduleDay.label}: `, "")}
+          </p>
+        </div>
+        <span className={cx("rounded-full px-3 py-1 text-xs font-black", scheduleColour.soft)}>
+          {scheduleDay.label}
+        </span>
+      </div>
+
+      <div ref={todayScheduleScrollRef} className="mt-5 max-h-[380px] space-y-2 overflow-y-auto pr-1">
+        {schedule.map((item, index) => {
+          const resolved = getActivityForScheduleItem(scheduleDay, item);
+          const linkedActivity = resolved?.activity;
+          const linkedActivityDay = resolved?.day ?? scheduleDay;
+          const itemKey = linkedActivity ? activityKey(linkedActivityDay.id, linkedActivity.id) : undefined;
+          const isRunningScheduleItem = Boolean(itemKey && state.runningActivityId === itemKey);
+          const isComplete = Boolean(itemKey && state.completed.includes(itemKey));
+
+          return (
+            <div
+              key={`${scheduleDay.id}-participant-schedule-${index}`}
+              ref={(element) => {
+                if (itemKey) todayScheduleItemRefs.current[itemKey] = element;
+              }}
+              className={cx(
+                "rounded-2xl border px-5 py-4 transition",
+                item.isBreak ? "border-slate-100 bg-slate-50" : "border-slate-200 bg-white",
+                isRunningScheduleItem && "border-2 border-slate-950 bg-white shadow-sm",
+              )}
+            >
+              <div className="flex items-start justify-between gap-4">
+                <span className="shrink-0 rounded-xl border bg-white px-3 py-1.5 text-sm font-black text-slate-700 shadow-sm">
+                  {item.time}
+                </span>
+                <span className="shrink-0 text-sm font-black text-slate-500">{item.duration}</span>
+              </div>
+
+              <div className="mt-5 flex items-end justify-between gap-4">
+                <div className={cx("min-w-0 truncate text-xl font-black", item.isBreak ? "text-slate-500" : "text-slate-950")}>
+                  {item.title}
+                </div>
+
+                {isRunningScheduleItem ? (
+                  <span className={cx("shrink-0 rounded-full px-4 py-2 text-sm font-black", scheduleColour.soft)}>
+                    Running now
+                  </span>
+                ) : isComplete ? (
+                  <span className="shrink-0 rounded-full bg-slate-950 px-4 py-2 text-sm font-black text-white">
+                    Completed
+                  </span>
+                ) : null}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      <Button className="mt-5 w-full" variant="secondary" onClick={() => onNavigate(scheduleDay.id)}>
+        <Play className="h-4 w-4" /> View activity
+      </Button>
+    </aside>
+  );
+})()}
+          </section>
+        </div>
+      </main>
+    );
+  }
+
   return (
     <main className="mx-auto max-w-[1280px] px-6 py-8">
       <div className="text-center">
         <h1 className="text-4xl font-black tracking-tight md:text-5xl">{state.sprintName || "Design Sprint Facilitator"}</h1>
         <p className="mx-auto mt-4 max-w-2xl text-lg leading-8 text-slate-600">
-          A facilitator-friendly 4-day design sprint workspace. Run activities, capture notes, generate HMWs, and ship a report.
-        </p>
+        {facilitatorMode
+          ? "A facilitator-friendly 4-day design sprint workspace. Run activities, capture notes, generate HMWs, and prepare the report."
+          : "A participant-focused sprint workspace. Follow the agenda, understand what is happening now, and stay clear on the next activity."}
+      </p>
+      <div
+        className={cx(
+          "mx-auto mt-5 inline-flex items-center gap-2 rounded-full border px-4 py-2 text-sm font-black",
+          facilitatorMode
+            ? "border-slate-900 bg-slate-950 text-white"
+            : "border-blue-200 bg-blue-50 text-blue-700"
+        )}
+      >
+        {facilitatorMode ? <Wrench className="h-4 w-4" /> : <Users className="h-4 w-4" />}
+        {facilitatorMode ? "Facilitator mode active" : "Participant view"}
       </div>
+      </div>
+
+      <Panel className={cx("mt-8 overflow-hidden p-0 transition-all duration-700", activeActivity && "border-2", activeActivity && participantTone.card)}>
+        <div className="grid gap-0 lg:grid-cols-[1.2fr_0.8fr]">
+
+          {/* LEFT SIDE */}
+          <div className="flex h-full flex-col p-8 md:p-10">
+            <div className="flex flex-wrap items-center gap-4">
+              <span className={cx(
+                "rounded-full px-5 py-2 text-sm font-black uppercase tracking-wide",
+                activeActivity ? participantTone.pill : "bg-slate-100 text-slate-600"
+              )}>
+                {activeActivity ? "Live now" : "Ready"}
+              </span>
+
+              <span className="text-lg font-black text-slate-900">
+                {activeActivity ? `${activeActivity.day.label}: ${activeDisplayTitle}` : "No activity running"}
+              </span>
+            </div>
+
+            <div className="mt-10 text-sm font-black tracking-[0.08em] text-slate-500">
+            What is happening now
+            </div>
+
+            <h2 className="mt-4 text-3xl font-black tracking-tight text-slate-950 md:text-4xl">
+              {activeActivity ? activeDisplayTitle : "Ready to begin"}
+            </h2>
+
+            <p className="mt-4 max-w-3xl text-lg leading-8 text-slate-600">
+              {activeActivity
+                ? activeActivity.activity.description
+                : "The facilitator will start the next activity when the room is ready."}
+            </p>
+
+            <div className="mt-8 flex flex-wrap gap-3 lg:mt-auto lg:pt-8">
+        {activeActivity ? (
+          <>
+            <Button
+              className="w-fit self-start"
+              variant="secondary"
+              onClick={() => {
+                onNavigate(activeActivity.day.id);
+                window.setTimeout(() => {
+                  window.dispatchEvent(
+                    new CustomEvent("sprintpilot:viewActivity", {
+                      detail: {
+                        dayId: activeActivity.day.id,
+                        activityId: activeActivity.activity.id,
+                      },
+                    }),
+                  );
+                }, 0);
+              }}
+            >
+              <Play className="h-4 w-4" /> View activity
+            </Button>
+            <Button
+                className="w-fit self-start"
+                variant="secondary"
+                onClick={() =>
+                  dispatch({
+                    type: "activity/complete",
+                    key: activityKey(activeActivity.day.id, activeActivity.activity.id),
+                  })
+                }
+              >
+                <CheckCircle2 className="h-4 w-4" /> Complete activity
+              </Button>
+            </>
+            ) : nextRunnableActivity ? (
+              <Button
+                className="w-fit self-start"
+                variant="primary"
+                onClick={() => dispatch({ type: "activity/run", key: nextRunnableActivity.key })}
+              >
+                <Play className="h-4 w-4" /> Run next activity
+              </Button>
+            ) : null}
+          </div>
+          </div>
+
+         {/* RIGHT SIDE */}
+          <div className={cx(
+            "flex h-full flex-col border-t p-8 md:p-10 lg:border-l lg:border-t-0",
+            activeActivity ? "bg-slate-50" : "bg-slate-50"
+          )}>
+
+            <div className="text-sm font-black tracking-[0.08em] text-slate-500">
+              Current focus
+            </div>
+
+            <div className="mt-4 text-3xl font-black tracking-tight text-slate-950 md:text-4xl">
+              {activeActivity
+                ? countdown.isOvertime
+                  ? "Time up"
+                  : `${formatCountdown(countdown.remainingSeconds)} remaining`
+                : dayLabel(state.currentDay)}
+            </div>
+
+            {activeActivity ? (
+              <div className="mt-4">
+                <div className="flex justify-between text-[10px] font-bold uppercase tracking-wide text-slate-500">
+                  <span>Start</span>
+                  <span>End</span>
+                </div>
+
+                <div className="mt-1 h-2 overflow-hidden rounded-full bg-white ring-1 ring-slate-200">
+                  <div
+                    className={cx(
+                      "h-full rounded-full transition-all duration-700 ease-out",
+                      countdown.isOvertime ? "bg-red-300" : participantTone.progress
+                    )}
+                    style={{ width: `${countdown.isOvertime ? 100 : countdown.progressPercent}%` }}
+                  />
+                </div>
+              </div>
+            ) : null}
+
+            <p className="mt-5 text-base leading-7 text-slate-600">
+              {activeActivity
+                ? activeActivity.activity.deliverable
+                : "Use the day cards below to follow the sprint."}
+            </p>
+
+            {activeActivity && (
+            <div className="mt-6 flex flex-wrap gap-2 lg:mt-auto">
+              <Button
+                variant="secondary"
+                onClick={() => dispatch({ type: state.runningActivityPausedAt ? "activity/resume" : "activity/pause" })}
+              >
+                {state.runningActivityPausedAt ? (
+                  <>
+                    <Play className="h-4 w-4" /> Resume
+                  </>
+                ) : (
+                  <>
+                    <Pause className="h-4 w-4" /> Pause
+                  </>
+                )}
+              </Button>
+
+              <Button
+                variant="secondary"
+                onClick={() => dispatch({ type: "activity/addTime", seconds: 5 * 60 })}
+              >
+                +5 min
+              </Button>
+
+              <Button
+                variant="secondary"
+                onClick={() => dispatch({ type: "activity/addTime", seconds: 10 * 60 })}
+              >
+                +10 min
+              </Button>
+            </div>
+            )}
+          </div>
+
+        </div>
+      </Panel>
 
       <div className="mt-8 grid gap-6 lg:grid-cols-[1.4fr_1fr]">
         <DarkPanel className="border-0 p-6 shadow-2xl ring-1 ring-slate-900/10">
@@ -1102,9 +3852,17 @@ function Dashboard({
               </h2>
               <p className="mt-1 text-sm text-white/70">Progress counts activities you’ve completed or captured notes for.</p>
             </div>
-            <Button variant="secondary" className="border-white/10 !bg-white/10 !text-white hover:!bg-white/15" onClick={() => onNavigate("report")}>
-              <Eye className="h-4 w-4" /> View report
-            </Button>
+            <div className="flex shrink-0 items-center gap-2">
+            {facilitatorMode ? (
+              <Button
+                variant="secondary"
+                className="whitespace-nowrap border-white/10 !bg-white/10 px-3 !text-white hover:!bg-white/15"
+                onClick={() => onNavigate("report")}
+              >
+                <Eye className="h-4 w-4" /> Report
+              </Button>
+            ) : null}
+          </div>
           </div>
 
           <div className="mt-8 grid gap-6 md:grid-cols-3">
@@ -1141,10 +3899,10 @@ function Dashboard({
             </span>
           </div>
           {activeActivity ? (
-            <div className="mt-3 rounded-2xl border border-emerald-400/30 bg-emerald-400/10 p-4 text-sm text-emerald-50">
-              <div className="text-xs font-black uppercase tracking-wide text-emerald-200">Active activity</div>
-              <div className="mt-1 font-black">{activeActivity.day.label}: {activeActivity.activity.title}</div>
-              <div className="mt-1 text-emerald-100">{activeActivity.activity.description}</div>
+            <div className={cx("mt-3 rounded-2xl border p-4 text-sm transition-all duration-700", participantTone.card, participantTone.softText, countdown.isOvertime && "animate-pulse border-red-300/40 bg-red-400/10 text-red-50")}>
+              <div className={cx("text-xs font-black uppercase tracking-wide", countdown.isOvertime ? "text-red-200" : participantTone.softLabel)}>Active activity</div>
+              <div className="mt-1 font-black">{activeActivity.day.label}: {activeDisplayTitle}</div>
+              <div className={cx("mt-1", countdown.isOvertime ? "text-red-100" : participantTone.softLabel)}>{activeActivity.activity.description}</div>
             </div>
           ) : (
             <div className="mt-3 rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-white/70">
@@ -1154,7 +3912,7 @@ function Dashboard({
           <div className="mt-4">
             <div className="relative h-4 overflow-hidden rounded-full bg-slate-800 ring-1 ring-white/10">
               <div
-                className="h-4 rounded-full transition-[width] duration-500"
+                className="h-4 rounded-full transition-all duration-700 ease-out"
                 style={sprintProgressFillStyle(progress.pct)}
               />
               <div className="pointer-events-none absolute inset-0 grid grid-cols-4">
@@ -1173,7 +3931,12 @@ function Dashboard({
           </div>
         </DarkPanel>
 
-        <SprintSetupPanel state={state} dispatch={dispatch} onNavigate={onNavigate} />
+        <SprintSetupPanel
+        state={state}
+        dispatch={dispatch}
+        onNavigate={onNavigate}
+        facilitatorMode={facilitatorMode}
+      />
       </div>
 
       <div className="mt-6 grid gap-5 lg:grid-cols-2">
@@ -1182,7 +3945,13 @@ function Dashboard({
         ))}
       </div>
 
-      <QuickActions onNavigate={onNavigate} openHmw={openHmw} hmwCount={state.hmws.length} />
+      <QuickActions
+        state={state}
+        onNavigate={onNavigate}
+        openHmw={openHmw}
+        hmwCount={state.hmws.length}
+        facilitatorMode={facilitatorMode}
+      />
     </main>
   );
 }
@@ -1231,53 +4000,79 @@ function SprintSetupPanel({
   state,
   dispatch,
   onNavigate,
+  facilitatorMode,
 }: {
   state: AppState;
   dispatch: React.Dispatch<Action>;
   onNavigate: (page: Page) => void;
+  facilitatorMode: boolean;
 }) {
+  const ReadOnlyField = ({ label, value }: { label: string; value: string }) => (
+    <div className="rounded-xl border bg-slate-50 p-3">
+      <div className="text-xs font-black uppercase tracking-wide text-slate-500">{label}</div>
+      <p className="mt-1 text-sm leading-6 text-slate-700">{value || "Not set yet"}</p>
+    </div>
+  );
+
   return (
     <Panel className="p-6">
       <div className="flex items-start justify-between gap-4">
         <div>
           <h2 className="text-lg font-black">Sprint Setup</h2>
-          <p className="mt-1 text-sm text-slate-500">These fields power your dashboard and report.</p>
+          <p className="mt-1 text-sm text-slate-500">
+            {facilitatorMode
+              ? "Edit the sprint context used across the dashboard and report."
+              : "Sprint context for participants and stakeholders."}
+          </p>
         </div>
+        {facilitatorMode ? (
         <Button variant="secondary" onClick={() => onNavigate("report")}>
           <Eye className="h-4 w-4" /> Report
         </Button>
+        ) : null}
       </div>
 
-      <div className="mt-5 space-y-4">
-        <Field
-          label="Sprint name"
-          hint="Visible in the header"
-          value={state.sprintName}
-          onChange={(value) => dispatch({ type: "setup/update", field: "sprintName", value })}
-          placeholder="e.g. Onboarding Sprint"
-        />
-        <Field
-          label="Challenge"
-          hint="What are we solving?"
-          value={state.challenge}
-          onChange={(value) => dispatch({ type: "setup/update", field: "challenge", value })}
-          placeholder="e.g. Users drop off after step 2"
-          textarea
-        />
-        <Field
-          label="Target users"
-          hint="Who are we solving for?"
-          value={state.targetUsers}
-          onChange={(value) => dispatch({ type: "setup/update", field: "targetUsers", value })}
-          placeholder="e.g. Busy parents, new PMs..."
-        />
-        <Field
-          label="Desired outcome"
-          hint="Success criteria"
-          value={state.desiredOutcome}
-          onChange={(value) => dispatch({ type: "setup/update", field: "desiredOutcome", value })}
-          placeholder="e.g. A testable prototype + learning"
-        />
+      <div className="mt-5 flex flex-1 flex-col space-y-4">
+        {facilitatorMode ? (
+          <div className="grid gap-4">
+            <Field
+              label="Sprint name"
+              hint="Visible in the header"
+              value={state.sprintName}
+              onChange={(value) => dispatch({ type: "setup/update", field: "sprintName", value })}
+              placeholder="e.g. Onboarding Sprint"
+            />
+            <Field
+              label="Challenge"
+              hint="What are we solving?"
+              value={state.challenge}
+              onChange={(value) => dispatch({ type: "setup/update", field: "challenge", value })}
+              placeholder="e.g. Users drop off after step 2"
+              textarea
+            />
+            <Field
+              label="Target users"
+              hint="Who are we solving for?"
+              value={state.targetUsers}
+              onChange={(value) => dispatch({ type: "setup/update", field: "targetUsers", value })}
+              placeholder="e.g. Busy parents, new PMs..."
+            />
+            <Field
+              label="Desired outcome"
+              hint="Success criteria"
+              value={state.desiredOutcome}
+              onChange={(value) => dispatch({ type: "setup/update", field: "desiredOutcome", value })}
+              placeholder="e.g. A testable prototype + learning"
+            />
+          </div>
+        ) : (
+          <div className="grid gap-4">
+            <ReadOnlyField label="Sprint name" value={state.sprintName} />
+            <ReadOnlyField label="Challenge" value={state.challenge} />
+            <ReadOnlyField label="Target users" value={state.targetUsers} />
+            <ReadOnlyField label="Desired outcome" value={state.desiredOutcome} />
+          </div>
+        )}
       </div>
 
       <div className="mt-5 flex items-center justify-between gap-3 rounded-2xl bg-slate-50 p-4">
@@ -1338,27 +4133,61 @@ function DayCard({ day, currentDay, runningActivityId, completed, onNavigate }: 
 }
 
 function QuickActions({
+  state,
   onNavigate,
   openHmw,
   hmwCount,
+  facilitatorMode,
 }: {
+  state: AppState;
   onNavigate: (page: Page) => void;
   openHmw: () => void;
   hmwCount: number;
+  facilitatorMode: boolean;
 }) {
-  const actions = [
-    ["Saved HMW Questions", hmwCount > 0 ? `${hmwCount} saved` : "No saved questions yet", CheckCircle2, openHmw],
-    ["Template Library", "Access worksheets and templates", BookOpen, () => onNavigate("resources")],
-    ["Timer & Tools", "Time-boxing utilities", Timer, () => onNavigate("timer")],
-    ["Sprint Report", "Summarize sprint data", Star, () => onNavigate("report")],
-  ] as const;
+  const activeActivity = useMemo(() => {
+    if (!state.runningActivityId) return null;
+
+    for (const day of sprintDays) {
+      const activity = day.activities.find((a) => activityKey(day.id, a.id) === state.runningActivityId);
+      if (activity) return { day, activity };
+    }
+
+    return null;
+  }, [state.runningActivityId]);
+
+  const actions: Array<[string, string, React.ElementType, () => void]> = facilitatorMode
+    ? [
+        activeActivity
+          ? ["Active Activity", `${activeActivity.day.label}: ${activeActivity.activity.title}`, Play, () => onNavigate(activeActivity.day.id)]
+          : ["Continue Current Day", dayLabel(state.currentDay), Play, () => onNavigate(state.currentDay)],
+        ["Saved HMW Questions", hmwCount > 0 ? `${hmwCount} saved` : "No saved questions yet", CheckCircle2, openHmw],
+        ["Template Library", "Access worksheets and templates", BookOpen, () => onNavigate("resources")],
+        ["Timer & Tools", "Time-boxing utilities", Timer, () => onNavigate("timer")],
+        ["Sprint Report", "Summarize sprint data", Star, () => onNavigate("report")],
+      ]
+    : [
+        activeActivity
+          ? ["View Active Activity", `${activeActivity.day.label}: ${activeActivity.activity.title}`, Play, () => onNavigate(activeActivity.day.id)]
+          : ["Continue Current Day", dayLabel(state.currentDay), Play, () => onNavigate(state.currentDay)],
+        ["Timer", "Use the sprint timer", Timer, () => onNavigate("timer")],
+      ];
 
   return (
     <Panel className="mt-6 p-5">
-      <h2 className="text-lg font-black">Quick Actions</h2>
-      <div className="mt-5 grid gap-3 md:grid-cols-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 className="text-lg font-black">What do you want to do next?</h2>
+          <p className="mt-1 text-sm text-slate-500">
+            {facilitatorMode ? "Facilitator shortcuts for running and capturing the sprint." : "Participant-safe shortcuts based on the current sprint flow."}
+          </p>
+        </div>
+        {activeActivity ? <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-black text-emerald-700">Activity running</span> : null}
+      </div>
+
+      <div className={cx("mt-5 grid gap-3", facilitatorMode ? "md:grid-cols-5" : "md:grid-cols-2")}>
         {actions.map(([title, desc, Icon, action]) => (
-          <button key={title} onClick={action} className="rounded-xl border p-4 text-left hover:bg-slate-50">
+          <button key={title} onClick={action} className="rounded-xl border p-4 text-left transition hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-slate-950 focus:ring-offset-2">
             <Icon className="mb-3 h-4 w-4 text-slate-600" />
             <strong className="block text-sm">{title}</strong>
             <span className="mt-1 block text-sm text-slate-500">{desc}</span>
@@ -1375,21 +4204,75 @@ function DayPage({
   dispatch,
   onNavigate,
   openHmw,
+  facilitatorMode,
 }: {
   day: SprintDay;
   state: AppState;
   dispatch: React.Dispatch<Action>;
   onNavigate: (page: Page) => void;
   openHmw: () => void;
+  facilitatorMode: boolean;
 }) {
   const [tab, setTab] = useState<Tab>("schedule");
+  const [focusActivityId, setFocusActivityId] = useState<string | undefined>(undefined);
+  const [guidanceLevel, setGuidanceLevel] = useState<GuidanceLevel>("standard");
+
+  useEffect(() => {
+    if (!facilitatorMode && tab === "resources") {
+      setTab("schedule");
+    }
+  }, [facilitatorMode, tab]);
+
+  useEffect(() => {
+    if (facilitatorMode) return;
+    if (!state.runningActivityId?.startsWith(`${day.id}-`)) return;
+
+    const activityId = state.runningActivityId.replace(`${day.id}-`, "");
+    setFocusActivityId(activityId);
+    setTab("activities");
+  }, [day.id, facilitatorMode, state.runningActivityId]);
+
+  useEffect(() => {
+    const handleViewActivity = (event: Event) => {
+      const detail = (event as CustomEvent<{ dayId: DayId; activityId: string }>).detail;
+      if (!detail || detail.dayId !== day.id) return;
+
+      setFocusActivityId(detail.activityId);
+      setTab("activities");
+
+      window.setTimeout(() => {
+        const el = document.getElementById(`activity-${detail.activityId}`);
+        if (!el) return;
+
+        const yOffset = -140;
+        const y = el.getBoundingClientRect().top + window.pageYOffset + yOffset;
+        window.scrollTo({ top: Math.max(0, y), behavior: "smooth" });
+      }, 120);
+
+      window.setTimeout(() => {
+        setFocusActivityId(undefined);
+      }, 900);
+    };
+
+    window.addEventListener("sprintpilot:viewActivity", handleViewActivity);
+    return () => window.removeEventListener("sprintpilot:viewActivity", handleViewActivity);
+  }, [day.id]);
+
+  const openActivityFromSchedule = (activityId: string) => {
+    setFocusActivityId(activityId);
+    setTab("activities");
+  };
+
   const c = colour[day.colour];
   const Icon = day.icon;
   return (
     <main className="mx-auto max-w-[1280px] px-6 py-8">
-      <Button variant="secondary" onClick={() => onNavigate("dashboard")}>
-        <ArrowLeft className="h-4 w-4" /> Back
-      </Button>
+      <div className="flex items-center justify-between gap-4">
+        <Button variant="secondary" onClick={() => onNavigate("dashboard")}>
+          <ArrowLeft className="h-4 w-4" /> Back
+        </Button>
+        <span className="w-fit rounded-lg border bg-white px-3 py-2 text-sm font-bold shadow-sm">{day.duration}</span>
+      </div>
 
       <div className="mt-6 flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
         <div>
@@ -1397,9 +4280,46 @@ function DayPage({
             <h1 className="text-3xl font-black tracking-tight">{day.title}</h1>
             <span className="rounded-md bg-blue-100 px-2 py-1 text-xs font-bold text-blue-700">In progress</span>
           </div>
-          <p className="mt-1 text-lg text-slate-500">{day.subtitle}</p>
+          <div className="mt-2 space-y-2">
+            <p className="text-lg text-slate-500">{day.subtitle}</p>
+
+            <div className="mt-3 space-y-1">
+              <p className="text-lg font-medium text-slate-700">
+                {day.guideLabel.replace(" Guide", "")}
+              </p>
+              <p className="max-w-3xl text-sm leading-relaxed text-slate-500">
+                {day.summary}
+              </p>
+            </div>
+          </div>
         </div>
-        <span className="w-fit rounded-lg border px-3 py-2 text-sm font-bold">{day.duration}</span>
+        <div className="flex w-full flex-col items-start gap-3 md:w-auto md:items-end">
+          {facilitatorMode ? (
+            <div className="flex items-center gap-3 rounded-full border border-slate-200/70 bg-white/70 px-2 py-2 shadow-sm backdrop-blur">
+              <span className="pl-3 text-xs font-black uppercase tracking-wide text-slate-500">
+                Guidance
+              </span>
+
+              <div className="inline-flex rounded-full bg-slate-100/80 p-1">
+                {(["beginner", "standard", "expert"] as GuidanceLevel[]).map((level) => (
+                  <button
+                    key={level}
+                    type="button"
+                    onClick={() => setGuidanceLevel(level)}
+                    className={cx(
+                      "rounded-full px-4 py-2 text-sm font-black capitalize transition",
+                      guidanceLevel === level
+                        ? "bg-slate-950 text-white shadow-sm"
+                        : "text-slate-500 hover:text-slate-950",
+                    )}
+                  >
+                    {level}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : null}
+        </div>
       </div>
 
       <div className="mt-6 grid gap-4 md:grid-cols-3">
@@ -1408,28 +4328,54 @@ function DayPage({
         <Metric icon={CheckCircle2} label="Outcome" value={day.outcome} tone="text-orange-600" />
       </div>
 
-      <div className="mt-6 grid grid-cols-4 rounded-2xl bg-slate-100 p-1">
-        {(["schedule", "activities", "guide", "resources"] as Tab[]).map((t) => (
-          <button
-            key={t}
-            onClick={() => setTab(t)}
-            className={cx(
-              "rounded-xl py-2 text-sm font-black capitalize text-slate-700",
-              tab === t && "bg-white text-slate-950 shadow-sm",
-            )}
-          >
-            {t === "guide" ? day.guideLabel : t}
-          </button>
-        ))}
+      <div className="mt-6 flex flex-wrap items-center justify-between gap-3">
+        <div className="grid flex-1 grid-cols-4 rounded-2xl bg-slate-100 p-1">
+        {((facilitatorMode ? ["schedule", "activities", "guide", "resources"] : ["schedule", "activities", "guide"]) as Tab[]).map((t) => (
+            <button
+              key={t}
+              onClick={() => setTab(t)}
+              className={cx(
+                "rounded-xl py-2 text-sm font-black capitalize text-slate-700",
+                tab === t && "bg-white text-slate-950 shadow-sm",
+              )}
+            >
+              {t === "guide" ? day.guideLabel.replace(" Guide", "") : t}
+            </button>
+          ))}
+        </div>
       </div>
 
-      {tab === "schedule" ? <Schedule day={day} /> : null}
-      {tab === "activities" ? <Activities day={day} state={state} dispatch={dispatch} openHmw={openHmw} /> : null}
+      {tab === "schedule" ? (
+          <Schedule
+            day={day}
+            state={state}
+            dispatch={dispatch}
+            facilitatorMode={facilitatorMode}
+            onOpenActivity={openActivityFromSchedule}
+          />
+        ) : null}
+      {tab === "activities" ? (
+        <Activities
+          day={day}
+          state={state}
+          dispatch={dispatch}
+          openHmw={openHmw}
+          facilitatorMode={facilitatorMode}
+          focusActivityId={focusActivityId}
+          guidanceLevel={guidanceLevel}
+        />
+      ) : null}
       {tab === "guide" ? <Guide day={day} /> : null}
       {tab === "resources" ? <DayResources day={day} openHmw={openHmw} /> : null}
 
-      <QuickActions onNavigate={onNavigate} openHmw={openHmw} hmwCount={state.hmws.length} />
-    </main>
+      <QuickActions
+        state={state}
+        onNavigate={onNavigate}
+        openHmw={openHmw}
+        hmwCount={state.hmws.length}
+        facilitatorMode={facilitatorMode}
+      />
+      </main>
   );
 }
 
@@ -1445,31 +4391,414 @@ function Metric({ icon: Icon, label, value, tone }: { icon: React.ElementType; l
   );
 }
 
-function Schedule({ day }: { day: SprintDay }) {
+function Schedule({
+  day,
+  state,
+  dispatch,
+  facilitatorMode,
+  onOpenActivity,
+}: {
+  day: SprintDay;
+  state: AppState;
+  dispatch: React.Dispatch<Action>;
+  facilitatorMode: boolean;
+  onOpenActivity: (activityId: string) => void;
+}) {
   const c = colour[day.colour];
+  const schedule = state.scheduleOverrides[day.id] ?? day.schedule;
+
   return (
     <Panel className="mt-3 p-5">
-      <h2 className="flex items-center gap-2 text-xl font-black">
-        <Clock className="h-5 w-5" /> {day.label} Schedule
-      </h2>
-      <div className="mt-6 space-y-3">
-        {day.schedule.map((item) => (
-          <div
-            key={`${item.time}-${item.title}`}
-            className={cx(
-              "flex items-center justify-between gap-3 rounded-xl border p-3",
-              item.isBreak ? c.soft : "border-slate-200 bg-white",
-            )}
-          >
-            <div className="flex min-w-0 items-center gap-3">
-              <span className="shrink-0 rounded-lg border bg-white px-2 py-1 text-xs font-black text-slate-800">{item.time}</span>
-              <strong className="truncate text-sm">{item.title}</strong>
-            </div>
-            <span className="shrink-0 text-sm font-semibold text-slate-500">{item.duration}</span>
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h2 className="flex items-center gap-2 text-xl font-black">
+            <Clock className="h-5 w-5" /> {day.label} Schedule
+          </h2>
+          {facilitatorMode ? (
+            <p className="mt-1 text-sm text-slate-500">Edit timings, breaks, order and custom agenda items for this day.</p>
+          ) : null}
+        </div>
+
+        {facilitatorMode ? (
+          <div className="flex flex-wrap gap-2">
+            <Button variant="secondary" onClick={() => dispatch({ type: "schedule/addItem", dayId: day.id })}>
+              <Plus className="h-4 w-4" /> Add item
+            </Button>
+            <Button variant="secondary" onClick={() => dispatch({ type: "schedule/resetDay", dayId: day.id })}>
+              Reset day
+            </Button>
           </div>
-        ))}
+        ) : null}
+      </div>
+
+      <div className="mt-6 space-y-3">
+        {schedule.map((item, index) => {
+          // Use shared schedule-item resolver
+          const resolved = getActivityForScheduleItem(day, item);
+          const activity = resolved?.activity;
+          const activityDay = resolved?.day ?? day;
+          const isClickable = Boolean(activity && !item.isBreak && !facilitatorMode);
+          const key = activity ? activityKey(activityDay.id, activity.id) : "";
+          const isActive = Boolean(key && state.runningActivityId === key);
+          const isCompleted = Boolean(key && state.completed.includes(key));
+
+          if (facilitatorMode) {
+            return (
+              <div
+                key={`schedule-edit-${day.id}-${index}`}
+                className={cx("rounded-xl border p-3", item.isBreak ? c.soft : "border-slate-200 bg-white")}
+              >
+                <div className="grid gap-3 md:grid-cols-[140px_1fr_140px_auto] md:items-center">
+                  <input
+                    value={item.time}
+                    onChange={(event) => dispatch({ type: "schedule/updateItem", dayId: day.id, index, field: "time", value: event.target.value })}
+                    className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-bold outline-none focus:ring-2 focus:ring-slate-950"
+                    aria-label="Schedule item time"
+                  />
+                  <input
+                    value={item.title}
+                    onChange={(event) => dispatch({ type: "schedule/updateItem", dayId: day.id, index, field: "title", value: event.target.value })}
+                    className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-bold outline-none focus:ring-2 focus:ring-slate-950"
+                    aria-label="Schedule item title"
+                  />
+                  <input
+                    value={item.duration}
+                    onChange={(event) => dispatch({ type: "schedule/updateItem", dayId: day.id, index, field: "duration", value: event.target.value })}
+                    className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-bold outline-none focus:ring-2 focus:ring-slate-950"
+                    aria-label="Schedule item duration"
+                  />
+                  <div className="flex flex-wrap justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={() => dispatch({ type: "schedule/moveItem", dayId: day.id, index, direction: "up" })}
+                      className="rounded-lg border bg-white px-2 py-1 text-xs font-black text-slate-600 disabled:opacity-40"
+                      disabled={index === 0}
+                    >
+                      Up
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => dispatch({ type: "schedule/moveItem", dayId: day.id, index, direction: "down" })}
+                      className="rounded-lg border bg-white px-2 py-1 text-xs font-black text-slate-600 disabled:opacity-40"
+                      disabled={index === schedule.length - 1}
+                    >
+                      Down
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => dispatch({ type: "schedule/toggleBreak", dayId: day.id, index })}
+                      className="rounded-lg border bg-white px-2 py-1 text-xs font-black text-slate-600"
+                    >
+                      {item.isBreak ? "Activity" : "Break"}
+                    </button>
+                    {/* Move-to-day dropdown */}
+                    <select
+                      value=""
+                      onChange={(event) => {
+                        const toDayId = event.target.value as DayId;
+                        if (!toDayId) return;
+
+                        dispatch({
+                          type: "schedule/moveItemToDay",
+                          fromDayId: day.id,
+                          index,
+                          toDayId,
+                        });
+                      }}
+                      className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs font-black text-slate-600"
+                      aria-label="Move schedule item to another day"
+                    >
+                      <option value="">Move</option>
+                      {DAY_IDS.filter((dayId) => dayId !== day.id).map((dayId) => (
+                        <option key={dayId} value={dayId}>
+                          {dayLabel(dayId)}
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      type="button"
+                      onClick={() => dispatch({ type: "schedule/removeItem", dayId: day.id, index })}
+                      className="rounded-lg border border-red-200 bg-white px-2 py-1 text-xs font-black text-red-600"
+                    >
+                      Remove
+                    </button>
+                  </div>
+                </div>
+              </div>
+            );
+          }
+
+          return (
+            <button
+              key={`schedule-view-${day.id}-${index}`}
+              type="button"
+              disabled={!isClickable}
+              onClick={isClickable && activity ? () => onOpenActivity(activity.id) : undefined}
+              className={cx(
+                "flex w-full items-center justify-between gap-3 rounded-xl border p-3 text-left transition",
+                item.isBreak ? c.soft : "border-slate-200 bg-white",
+                isClickable ? "cursor-pointer hover:border-slate-300 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-slate-950 focus:ring-offset-2" : "cursor-default",
+              )}
+            >
+              <div className="flex min-w-0 items-center gap-3">
+                <span className="shrink-0 rounded-lg border bg-white px-2 py-1 text-xs font-black text-slate-800">{item.time}</span>
+                <strong className="truncate text-sm">{item.title}</strong>
+              </div>
+              <div className="flex shrink-0 items-center gap-3">
+                {isActive ? <span className="rounded-full bg-emerald-100 px-2 py-1 text-xs font-black text-emerald-700">Active</span> : null}
+                {isCompleted && !isActive ? <span className="rounded-full bg-slate-900 px-2 py-1 text-xs font-black text-white">Completed</span> : null}
+                {isClickable && !isActive && !isCompleted ? <span className="text-xs font-black text-slate-400">Open activity</span> : null}
+                <span className="text-sm font-semibold text-slate-500">{item.duration}</span>
+              </div>
+            </button>
+          );
+        })}
       </div>
     </Panel>
+  );
+}
+
+function FacilitatorConfidenceLayer({
+  activity,
+  isRunning,
+  isDone,
+}: {
+  activity: Activity;
+  isRunning: boolean;
+  isDone: boolean;
+}) {
+  const guide = getGuideByTitle(activity.guideTitle);
+
+  return (
+    <div className="mt-4 grid gap-3 md:grid-cols-3">
+      <div className="rounded-xl border bg-slate-50 p-3">
+        <div className="text-xs font-black uppercase tracking-wide text-slate-500">Confidence cue</div>
+        <p className="mt-1 text-sm leading-6 text-slate-600">
+          {isDone
+            ? "Output captured. Check the report evidence before moving on."
+            : isRunning
+              ? "You are facilitating this now. Keep the timebox visible and capture artefacts before closing."
+              : "Start this when the room understands the output expected."}
+        </p>
+      </div>
+
+      <div className="rounded-xl border bg-slate-50 p-3">
+        <div className="text-xs font-black uppercase tracking-wide text-slate-500">Watch for</div>
+        <p className="mt-1 text-sm leading-6 text-slate-600">
+          Debate replacing capture, unclear decisions, or outputs that will not make sense later.
+        </p>
+      </div>
+
+      <div className="rounded-xl border bg-slate-50 p-3">
+        <div className="text-xs font-black uppercase tracking-wide text-slate-500">Before moving on</div>
+        <p className="mt-1 text-sm leading-6 text-slate-600">
+          Capture notes, photos, decisions, risks, questions, or recommendations linked to this activity.
+        </p>
+        <div className="mt-2 text-xs font-semibold text-slate-500">
+          Guide: {guide ? guide.title : activity.guideTitle}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function TestingSessionEvidenceCard({
+  sessionKey,
+  sessionLabel,
+  session,
+  dispatch,
+}: {
+  sessionKey: string;
+  sessionLabel: string;
+  session: TestingSession | undefined;
+  dispatch: React.Dispatch<Action>;
+}) {
+  const value: TestingSession = session ?? {
+    participant: "",
+    role: "",
+    clarityScore: 3,
+    usefulnessScore: 3,
+    confidenceScore: 3,
+    taskCompletionScore: 3,
+    keyQuote: "",
+    observedBehaviour: "",
+    frictionPoint: "",
+    positiveSignal: "",
+    recommendation: "",
+  };
+
+  const update = (field: keyof TestingSession, nextValue: string | number) => {
+    dispatch({ type: "testing/updateSession", key: sessionKey, field, value: nextValue });
+  };
+
+  const Likert = ({
+    label,
+    field,
+    helper,
+  }: {
+    label: string;
+    field: "clarityScore" | "usefulnessScore" | "confidenceScore" | "taskCompletionScore";
+    helper: string;
+  }) => (
+    <div className="rounded-2xl border bg-white p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <div className="text-sm font-black text-slate-900">{label}</div>
+          <div className="mt-1 text-xs leading-5 text-slate-500">{helper}</div>
+        </div>
+        <div className="rounded-full bg-purple-100 px-3 py-1 text-xs font-black text-purple-700">
+          {value[field]}/5
+        </div>
+      </div>
+
+      <div className="mt-3 flex gap-2">
+        {[1, 2, 3, 4, 5].map((score) => (
+          <button
+            key={score}
+            type="button"
+            onClick={() => update(field, score)}
+            className={cx(
+              "flex h-9 w-9 items-center justify-center rounded-full border text-sm font-black transition",
+              value[field] === score
+                ? "border-purple-600 bg-purple-600 text-white shadow-sm"
+                : "border-slate-200 bg-slate-50 text-slate-600 hover:border-purple-300 hover:bg-purple-50",
+            )}
+            aria-label={`${label}: ${score} out of 5`}
+          >
+            {score}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="mt-6 rounded-[1.5rem] border border-purple-200 bg-purple-50/70 p-5">
+      <div>
+        <div className="text-xs font-black uppercase tracking-wide text-purple-700">Testing evidence</div>
+        <h3 className="mt-1 text-lg font-black text-slate-950">{sessionLabel}</h3>
+        <p className="mt-1 text-sm leading-6 text-slate-600">
+          Capture the strongest evidence from this testing session so the report can summarise Day 4 clearly.
+        </p>
+      </div>
+
+      <div className="mt-4 grid gap-3 md:grid-cols-2">
+        <label className="block rounded-2xl border bg-white p-4">
+          <span className="text-xs font-black uppercase tracking-wide text-slate-500">Participant</span>
+          <input
+            value={value.participant}
+            onChange={(event) => update("participant", event.target.value)}
+            placeholder="e.g. Participant 1"
+            className="mt-2 w-full rounded-xl border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-purple-200"
+          />
+        </label>
+
+        <label className="block rounded-2xl border bg-white p-4">
+          <span className="text-xs font-black uppercase tracking-wide text-slate-500">Role / profile</span>
+          <input
+            value={value.role ?? ""}
+            onChange={(event) => update("role", event.target.value)}
+            placeholder="e.g. Parent, student, colleague, service user"
+            className="mt-2 w-full rounded-xl border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-purple-200"
+          />
+        </label>
+      </div>
+
+      <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+        <Likert label="Clarity" field="clarityScore" helper="How clearly did they understand the concept?" />
+        <Likert label="Usefulness" field="usefulnessScore" helper="How useful or valuable did it appear to them?" />
+        <Likert label="Confidence" field="confidenceScore" helper="How confident did they seem using it?" />
+        <Likert label="Task completion" field="taskCompletionScore" helper="How successfully did they complete the test task?" />
+      </div>
+
+      <div className="mt-4 grid gap-3 lg:grid-cols-2">
+        {([
+          ["keyQuote", "Key quote", "Capture a direct quote that best represents the session."],
+          ["observedBehaviour", "Observed behaviour", "What did they actually do, hesitate over, skip, repeat, or misunderstand?"],
+          ["frictionPoint", "Main friction point", "Where did the experience create confusion, effort, doubt, or resistance?"],
+          ["positiveSignal", "Strongest positive signal", "What suggested value, confidence, excitement, or intent?"],
+          ["recommendation", "Recommendation", "What should the team change, keep, test, or decide next?"],
+        ] as Array<[keyof TestingSession, string, string]>).map(([field, label, placeholder]) => (
+          <label key={field} className="block rounded-2xl border bg-white p-4 lg:last:col-span-2">
+            <span className="text-xs font-black uppercase tracking-wide text-slate-500">{label}</span>
+            <p className="mt-1 text-xs leading-5 text-slate-500">{placeholder}</p>
+
+            <div className="mt-3 flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  const currentValue = String(value[field] ?? "");
+                  update(field, `${currentValue}${currentValue.endsWith("\n") || !currentValue ? "" : "\n"}# Heading text`);
+                }}
+                className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-black uppercase tracking-wide text-slate-500 transition hover:border-slate-300 hover:bg-slate-50 hover:text-slate-800"
+              >
+                Heading
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  const currentValue = String(value[field] ?? "");
+                  update(field, `${currentValue}${currentValue.endsWith("\n") || !currentValue ? "" : "\n"}## Label text`);
+                }}
+                className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-black uppercase tracking-wide text-slate-500 transition hover:border-slate-300 hover:bg-slate-50 hover:text-slate-800"
+              >
+                Label
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  const currentValue = String(value[field] ?? "");
+                  update(field, `${currentValue}${currentValue.endsWith("\n") || !currentValue ? "" : "\n"}- Bullet point`);
+                }}
+                className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-black uppercase tracking-wide text-slate-500 transition hover:border-slate-300 hover:bg-slate-50 hover:text-slate-800"
+              >
+                Bullet
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  const currentValue = String(value[field] ?? "");
+                  update(field, `${currentValue}${currentValue.endsWith("\n") || !currentValue ? "" : "\n"}> Quote text`);
+                }}
+                className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-black uppercase tracking-wide text-slate-500 transition hover:border-slate-300 hover:bg-slate-50 hover:text-slate-800"
+              >
+                Quote
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  const currentValue = String(value[field] ?? "");
+                  update(field, `${currentValue}${currentValue.endsWith(" ") || !currentValue ? "" : " "}**bold text**`);
+                }}
+                className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-black uppercase tracking-wide text-slate-500 transition hover:border-slate-300 hover:bg-slate-50 hover:text-slate-800"
+              >
+                Bold
+              </button>
+
+              <button
+                type="button"
+                onClick={() => update(field, `${String(value[field] ?? "")}\n\n`)}
+                className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-black uppercase tracking-wide text-slate-500 transition hover:border-slate-300 hover:bg-slate-50 hover:text-slate-800"
+              >
+                Space
+              </button>
+            </div>
+
+            <textarea
+              value={String(value[field] ?? "")}
+              onChange={(event) => update(field, event.target.value)}
+              placeholder="Use the buttons above, or type # for headings, ## for labels, - for bullets, > for quotes, and blank lines for spacing."
+              rows={4}
+              className="mt-2 min-h-32 w-full resize-y whitespace-pre-wrap rounded-xl border px-3 py-2 text-sm leading-7 outline-none focus:ring-2 focus:ring-purple-200"
+            />
+          </label>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -1478,138 +4807,340 @@ function Activities({
   state,
   dispatch,
   openHmw,
+  facilitatorMode,
+  focusActivityId,
+  guidanceLevel,
 }: {
   day: SprintDay;
   state: AppState;
   dispatch: React.Dispatch<Action>;
   openHmw: () => void;
+  facilitatorMode: boolean;
+  focusActivityId?: string;
+  guidanceLevel: GuidanceLevel;
 }) {
+
+  useEffect(() => {
+    if (!focusActivityId) return;
+    const timer = window.setTimeout(() => {
+      const el = document.querySelector(`[id^="activity-${focusActivityId}"]`) as HTMLElement | null;
+      if (el) {
+        const yOffset = -140;
+        const y = el.getBoundingClientRect().top + window.pageYOffset + yOffset;
+        window.scrollTo({ top: Math.max(0, y), behavior: "smooth" });
+      }
+    }, 300);
+
+    return () => window.clearTimeout(timer);
+  }, [focusActivityId, day.id]);
+
+  const activeActivityId = state.runningActivityId?.startsWith(`${day.id}-`)
+    ? state.runningActivityId.replace(`${day.id}-`, "")
+    : undefined;
+
+  useEffect(() => {
+    if (facilitatorMode || !activeActivityId) return;
+
+    const timer = window.setTimeout(() => {
+      const el = document.querySelector(`[id^="activity-${activeActivityId}"]`) as HTMLElement | null;
+      if (el) {
+        const yOffset = -140;
+        const y = el.getBoundingClientRect().top + window.pageYOffset + yOffset;
+        window.scrollTo({ top: Math.max(0, y), behavior: "smooth" });
+      }
+    }, 300);
+
+    return () => window.clearTimeout(timer);
+  }, [activeActivityId, day.id, facilitatorMode]);
+
   const c = colour[day.colour];
   const [selectedGuide, setSelectedGuide] = useState<ResourceGuide | null>(null);
 
+  // 1. Add countdown and effect for auto-completion
+  const countdown = useActivityCountdown(state);
+  useEffect(() => {
+    if (!facilitatorMode) return;
+    if (!state.runningActivityId || !countdown.isOvertime) return;
+    if (state.completed.includes(state.runningActivityId)) return;
+
+    dispatch({ type: "activity/complete", key: state.runningActivityId });
+  }, [countdown.isOvertime, dispatch, facilitatorMode, state.completed, state.runningActivityId]);
+
+  const effectiveSchedule = state.scheduleOverrides[day.id] ?? day.schedule;
+  const activityScheduleItems = effectiveSchedule.filter((item) => !item.isBreak);
+
   return (
-    <div className="mt-3 space-y-4">
-      {day.activities.map((a, index) => {
-        const key = activityKey(day.id, a.id);
+    <>
+      <div className="mt-3 space-y-4">
+      {activityScheduleItems.map((item, index) => {
+        const resolved = getActivityForScheduleItem(day, item);
+        if (!resolved) return null;
+
+        const a = resolved.activity;
+        const activityDay = resolved.day;
+        const key = activityKey(activityDay.id, a.id);
+        const displayTitle = item.title || a.title;
+        const scheduledTime = `${item.time} • ${item.duration}`;
         const isRunning = state.runningActivityId === key;
         const isDone = state.completed.includes(key);
+        // 2. Add isAutoCompleted and completeButtonIsDone
+        const completeButtonIsDone = isDone;
         const notes = state.notes[key] ?? "";
         const artefacts = state.artefacts[key] ?? [];
         const guide = getGuideByTitle(a.guideTitle);
+        const watchFors = getActivityWatchFors(a);
+        const shouldDeemphasise = !facilitatorMode && Boolean(state.runningActivityId) && state.runningActivityId !== key;
 
         return (
           <Panel
-            key={key}
+            key={`${key}-${index}`}
+            id={`activity-${a.id}-${index}`}
             className={cx(
-              "p-5 transition",
+              "scroll-mt-24 p-5 transition duration-300",
+              focusActivityId === a.id && "ring-4 ring-slate-950/10",
               isRunning && "border-2 border-emerald-500 bg-emerald-50/40 shadow-[0_0_0_4px_rgba(16,185,129,0.14)]",
               isDone && !isRunning && "bg-slate-50",
+              shouldDeemphasise && "opacity-55",
             )}
           >
-            <div className="flex items-start justify-between gap-4">
-              <h2 className="flex items-center gap-2 text-lg font-black">
-                <span className={cx("flex h-6 w-6 items-center justify-center rounded-full text-xs", c.solid)}>{index + 1}</span>
-                {a.title}
-              </h2>
+            {facilitatorMode && activityDay.id === "day4" && a.id.startsWith("testing-") ? (
+              <TestingSessionEvidenceCard
+                sessionKey={key}
+                sessionLabel={displayTitle}
+                session={state.testingSessions[key]}
+                dispatch={dispatch}
+              />
+            ) : null}
+            <div
+              className={cx(
+                "flex items-start justify-between gap-4",
+                activityDay.id === "day4" && a.id.startsWith("testing-") && "pt-5",
+              )}
+>
+              <div>
+                <h2 className="flex items-center gap-2 text-lg font-black">
+                  <span className={cx("flex h-6 w-6 items-center justify-center rounded-full text-xs", c.solid)}>{index + 1}</span>
+                  {displayTitle}
+                </h2>
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <div className="inline-flex items-center gap-2 rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-600">
+                    <Clock className="h-3.5 w-3.5" />
+                    {scheduledTime}
+                  </div>
+                  {isRunning ? <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-black text-emerald-700">Running now</span> : null}
+                </div>
+              </div>
 
-              <div className="flex items-center gap-2">
-                {isRunning ? <span className="rounded-lg bg-emerald-100 px-3 py-1 text-xs font-black text-emerald-700">Running now</span> : null}
-                {isDone ? <span className="rounded-lg bg-slate-900 px-3 py-1 text-xs font-black text-white">Completed</span> : null}
+              <div className="flex flex-wrap items-center justify-end gap-2">
+                {/* Removed duplicate "Running now" pill here */}
+                {facilitatorMode ? (
+                  <>
+                    {isRunning ? (
+                      <Button variant="secondary" onClick={() => dispatch({ type: "activity/stop" })}>
+                        <X className="h-4 w-4" /> Stop timer
+                      </Button>
+                    ) : (
+                      <Button
+                        variant="secondary"
+                        onClick={() => dispatch({ type: "activity/run", key })}
+                        disabled={isDone || isRunning}
+                      >
+                        <Play className="h-4 w-4" /> Run Activity
+                      </Button>
+                    )}
+
+                    <Button
+                      variant={completeButtonIsDone ? "primary" : "secondary"}
+                      onClick={() =>
+                        dispatch({
+                          type: completeButtonIsDone ? "activity/toggleComplete" : "activity/complete",
+                          key,
+                        })
+                      }
+                    >
+                      <CheckCircle2 className="h-4 w-4" />
+                      {completeButtonIsDone ? "Completed" : "Complete activity"}
+                    </Button>
+                  </>
+                ) : null}
               </div>
             </div>
 
             <p className="mt-7 text-base leading-7 text-slate-700">{a.description}</p>
 
-            <div className="mt-5 grid gap-10 md:grid-cols-2">
-              <div>
-                <strong className="flex items-center gap-2">
-                  <Users className="h-4 w-4" /> Participants
-                </strong>
-                <p className="mt-2 text-sm text-slate-500">{a.participants}</p>
+            {!facilitatorMode ? (
+              <p className="mt-3 text-sm font-semibold text-slate-600">
+                {isRunning
+                  ? "Focus here — this is the activity the room is working on now."
+                  : isDone
+                  ? "This activity has been completed."
+                  : "This activity is coming up in the sprint flow."}
+              </p>
+            ) : null}
+
+            {/* FacilitatorConfidenceLayer removed */}
+            {/* Merged guidance row */}
+            {facilitatorMode ? (
+              <div className="mt-6 grid gap-4 lg:grid-cols-3">
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                  <div className="flex items-center gap-2 text-sm font-black text-slate-500">
+                    <Mic className="h-4 w-4" /> Say
+                  </div>
+                  <ul className="mt-2 space-y-2 text-sm font-semibold leading-6 text-slate-500">
+                    <li className="flex gap-2">
+                      <span className="mt-[0.55rem] h-1.5 w-1.5 shrink-0 rounded-full bg-slate-500" />
+                      <span>{a.description}</span>
+                    </li>
+                  </ul>
+                </div>
+
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                  <div className="flex items-center gap-2 text-sm font-black text-slate-500">
+                    <Eye className="h-4 w-4" /> Watch for
+                  </div>
+                  <ul className="mt-2 space-y-2 text-sm font-semibold leading-6 text-slate-500">
+                    {watchFors.map((watchFor) => (
+                      <li key={watchFor} className="flex gap-2">
+                        <span className="mt-[0.55rem] h-1.5 w-1.5 shrink-0 rounded-full bg-slate-500" />
+                        <span>{watchFor}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                  <div className="flex items-center gap-2 text-sm font-black text-slate-500">
+                    <CheckCircle2 className="h-4 w-4" /> Move on when
+                  </div>
+                  <ul className="mt-2 space-y-2 text-sm font-semibold leading-6 text-slate-500">
+                    <li className="flex gap-2">
+                      <span className="mt-[0.55rem] h-1.5 w-1.5 shrink-0 rounded-full bg-slate-500" />
+                      <span>{a.deliverable}</span>
+                    </li>
+                  </ul>
+                </div>
               </div>
-              <div>
-                <strong>Materials Needed</strong>
-                <ul className="mt-2 list-inside list-disc text-sm leading-6 text-slate-500">
-                  {a.materials.map((m) => (
-                    <li key={m}>{m}</li>
-                  ))}
-                </ul>
+            ) : null}
+
+            {facilitatorMode ? (
+              <div className="mt-7 grid gap-4 md:grid-cols-2">
+                <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                  <div className="text-sm font-black text-slate-950">Participants</div>
+                  <p className="mt-2 text-sm leading-6 text-slate-600">{a.participants}</p>
+                </div>
+
+                <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                  <div className="text-sm font-black text-slate-950">Materials</div>
+                  <ul className="mt-2 space-y-2 text-sm leading-6 text-slate-700">
+                    {a.materials.map((m) => (
+                      <li key={m}>• {m}</li>
+                    ))}
+                  </ul>
+                </div>
+
+                <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                  <div className="text-sm font-black text-slate-950">Deliverable</div>
+                  <p className="mt-2 text-sm leading-6 text-slate-600">{a.deliverable}</p>
+                </div>
+
+                <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                  <div className="text-sm font-black text-slate-950">Facilitator tips</div>
+                  <ul className="mt-2 space-y-1 text-sm leading-6 text-slate-600">
+                    {a.tips.map((tip) => (
+                      <li key={tip}>💡 {tip}</li>
+                    ))}
+                  </ul>
+                </div>
               </div>
-            </div>
+            ) : (
+              <div className="mt-6 rounded-2xl border bg-slate-50 p-4">
+                <div className="text-xs font-black uppercase tracking-wide text-slate-500">Expected output</div>
+                <p className="mt-2 text-base font-semibold leading-7 text-slate-800">{a.deliverable}</p>
 
-            <div className="mt-7 grid gap-8 md:grid-cols-2">
-              <div>
-                <strong>Deliverable</strong>
-                <p className="mt-2 text-sm text-slate-500">{a.deliverable}</p>
+                {a.tips.length > 0 ? (
+                  <div className="mt-4 border-t pt-4">
+                    <div className="text-xs font-black uppercase tracking-wide text-slate-500">What to keep in mind</div>
+                    <ul className="mt-3 grid gap-2 text-sm leading-6 text-slate-600 md:grid-cols-2">
+                      {a.tips.slice(0, 4).map((tip) => (
+                        <li key={tip} className="flex gap-2">
+                          <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
+                          <span>{tip}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
               </div>
-              <div>
-                <strong>Facilitator Tips</strong>
-                <ul className="mt-2 space-y-1 text-sm leading-6 text-slate-500">
-                  {a.tips.map((tip) => (
-                    <li key={tip}>💡 {tip}</li>
-                  ))}
-                </ul>
+            )}
+
+            {facilitatorMode ? (
+              <div className="mt-6 rounded-xl border bg-slate-50 p-3">
+                <label htmlFor={`${key}-notes`} className="text-sm font-black">
+                  Activity notes
+                </label>
+                <textarea
+                  id={`${key}-notes`}
+                  value={notes}
+                  onChange={(e) => dispatch({ type: "notes/set", key, value: e.target.value })}
+                  className="mt-2 min-h-24 w-full rounded-xl border bg-white p-3 text-sm outline-none focus:ring-2 focus:ring-slate-950"
+                  placeholder="Capture outputs, decisions, observations, and evidence..."
+                />
               </div>
-            </div>
+            ) : null}
 
-            <div className="mt-6 rounded-xl border bg-slate-50 p-3">
-              <label htmlFor={`${key}-notes`} className="text-sm font-black">
-                Activity notes
-              </label>
-              <textarea
-                id={`${key}-notes`}
-                value={notes}
-                onChange={(e) => dispatch({ type: "notes/set", key, value: e.target.value })}
-                className="mt-2 min-h-24 w-full rounded-xl border bg-white p-3 text-sm outline-none focus:ring-2 focus:ring-slate-950"
-                placeholder="Capture outputs, decisions, observations, and evidence..."
-              />
-            </div>
+            {facilitatorMode ? <ArtefactCapture activityKeyValue={key} artefacts={artefacts} dispatch={dispatch} /> : null}
 
-            <ArtefactCapture activityKeyValue={key} artefacts={artefacts} dispatch={dispatch} />
+            {facilitatorMode ? (
+              <div className="mt-4 flex flex-wrap items-center gap-3 rounded-xl border p-3">
+                <BookOpen className="h-4 w-4 text-slate-600" />
+                <div className="min-w-0 flex-1">
+                  <strong className="text-sm">{a.guideTitle}</strong>
+                  <p className="truncate text-xs text-slate-500">{a.guideSubtitle}</p>
+                </div>
 
-            <div className="mt-4 flex flex-wrap items-center gap-3 rounded-xl border p-3">
-              <BookOpen className="h-4 w-4 text-slate-600" />
-              <div className="min-w-0 flex-1">
-                <strong className="text-sm">{a.guideTitle}</strong>
-                <p className="truncate text-xs text-slate-500">{a.guideSubtitle}</p>
+                {a.id === "hmw" ? (
+                  <Button variant="secondary" onClick={openHmw}>
+                    Open Tool
+                  </Button>
+                ) : null}
+
+                {guide ? (
+                  <Button variant="secondary" onClick={() => setSelectedGuide(guide)}>
+                    <BookOpen className="h-4 w-4" /> Open guide
+                  </Button>
+                ) : null}
               </div>
-
-              {a.id === "hmw" ? (
-                <Button variant="secondary" onClick={openHmw}>
-                  Open Tool
-                </Button>
-              ) : null}
-
-              {guide ? (
-                <Button variant="secondary" onClick={() => setSelectedGuide(guide)}>
-                  <BookOpen className="h-4 w-4" /> Open guide
-                </Button>
-              ) : null}
-
-              {isRunning ? (
-                <Button variant="secondary" onClick={() => dispatch({ type: "activity/stop" })}>
-                  <X className="h-4 w-4" /> Stop
-                </Button>
-              ) : (
-                <Button variant="secondary" onClick={() => dispatch({ type: "activity/run", key })} disabled={isDone}>
-                  <Play className="h-4 w-4" /> Run Activity
-                </Button>
-              )}
-
-              <Button variant={isDone ? "primary" : "secondary"} onClick={() => dispatch({ type: "activity/toggleComplete", key })}>
-                <CheckCircle2 className="h-4 w-4" /> {isDone ? "Completed" : "Mark Complete"}
-              </Button>
-            </div>
+            ) : null}
           </Panel>
         );
       })}
 
       <GuideDrawer guide={selectedGuide} onClose={() => setSelectedGuide(null)} />
-    </div>
+      </div>
+    </>
   );
 }
 
 // Helper functions and components for artefact grouping and cards
+
+async function loadLatestLiveCloudSession() {
+  if (!supabase) return null;
+
+  const { data, error } = await supabase
+    .from("sprint_sessions")
+    .select("id,name,status,state,created_at,updated_at")
+    .eq("status", "live")
+    .order("updated_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    console.error("Unable to load latest live sprint session", error);
+    return null;
+  }
+
+  return data ? cloudRowToSprintSession(data as CloudSprintSessionRow) : null;
+}
 
 function getNoteGroupDescription(noteKind: Artefact["noteKind"]) {
   switch (noteKind) {
@@ -1625,6 +5156,8 @@ function getNoteGroupDescription(noteKind: Artefact["noteKind"]) {
       return "Concerns, blockers, assumptions, or things to validate.";
     case "question":
       return "Open questions the team still needs to answer.";
+    case "recommendation":
+      return "Suggested next steps or actions based on sprint evidence.";
     default:
       return "Captured sprint note artefacts.";
   }
@@ -1678,6 +5211,174 @@ function ArtefactGroup({
   );
 }
 
+function getParticipantWaitingMessage(state: AppState) {
+  const currentDay = sprintDays.find((day) => day.id === state.currentDay) ?? sprintDays[0];
+  const daySchedule = state.scheduleOverrides[currentDay.id] ?? currentDay.schedule;
+  const completed = new Set(state.completed);
+
+  const nextScheduleItem = daySchedule.find((item) => {
+    if (item.isBreak) return false;
+    const resolved = getActivityForScheduleItem(currentDay, item);
+    if (!resolved) return false;
+    return !completed.has(activityKey(resolved.day.id, resolved.activity.id));
+  });
+
+  const nextActivity = nextScheduleItem ? getActivityForScheduleItem(currentDay, nextScheduleItem) : null;
+  const nextTitle = nextActivity?.activity.title ?? nextScheduleItem?.title;
+
+  if (!nextTitle) {
+    return {
+      eyebrow: "DAY COMPLETE",
+      title: `Great work — ${currentDay.label} is wrapped up 🎉`,
+      body: "Your facilitator will guide the next step when the team is ready.",
+    };
+  }
+
+  return {
+    eyebrow: "WAITING",
+    title: "Your friendly facilitator will start the activity shortly 🤓",
+    body: `Next up: ${nextTitle}. Keep this screen visible for the sprint flow.`,
+  };
+}
+
+function InlineFormattedText({ text }: { text: string }) {
+  const parts = text.split(/(\*\*[^*]+\*\*)/g);
+
+  return (
+    <>
+      {parts.map((part, index) => {
+        if (part.startsWith("**") && part.endsWith("**")) {
+          return (
+            <strong key={index} className="font-black text-slate-900">
+              {part.slice(2, -2)}
+            </strong>
+          );
+        }
+
+        return <React.Fragment key={index}>{part}</React.Fragment>;
+      })}
+    </>
+  );
+}
+
+function FormattedArtefactText({ text }: { text: string }) {
+  const lines = text.split("\n");
+
+  return (
+    <div className="space-y-2 whitespace-pre-wrap text-sm leading-7 text-slate-600">
+      {lines.map((line, index) => {
+        const trimmed = line.trim();
+
+        if (!trimmed) {
+          return <div key={index} className="h-2" />;
+        }
+
+        if (trimmed.startsWith("##")) {
+          return (
+            <h5 key={index} className="pt-1 text-xs font-black uppercase tracking-[0.2em] text-slate-500">
+              <InlineFormattedText text={trimmed.replace(/^##\s*/, "")} />
+            </h5>
+          );
+        }
+
+        if (trimmed.startsWith("#")) {
+          return (
+            <h4 key={index} className="pt-2 text-base font-black text-slate-900">
+              <InlineFormattedText text={trimmed.replace(/^#\s*/, "")} />
+            </h4>
+          );
+        }
+
+        if (trimmed.startsWith("-")) {
+          return (
+            <div
+              key={index}
+              className="flex items-start gap-3 rounded-2xl border border-purple-100 bg-purple-50/60 px-4 py-3 text-slate-700"
+            >
+              <span className="mt-[0.45rem] text-xs text-purple-500">●</span>
+        
+              <div className="min-w-0 flex-1 leading-8 text-slate-700">
+                <InlineFormattedText text={trimmed.replace(/^\-\s*/, "")} />
+              </div>
+            </div>
+          );
+        }
+
+        if (trimmed.startsWith(">")) {
+          return (
+            <blockquote key={index} className="border-l-4 border-purple-200 pl-4 italic text-slate-500">
+              <InlineFormattedText text={trimmed.replace(/^>\s*/, "")} />
+            </blockquote>
+          );
+        }
+
+        return (
+          <p key={index}>
+            <InlineFormattedText text={line} />
+          </p>
+        );
+      })}
+    </div>
+  );
+}
+
+function SessionRecommendationText({ text }: { text: string }) {
+  const lines = text.split("\n");
+
+  return (
+    <div className="space-y-2 whitespace-pre-wrap text-sm leading-7 text-slate-700">
+      {lines.map((line, index) => {
+        const trimmed = line.trim();
+
+        if (!trimmed) {
+          return <div key={index} className="h-2" />;
+        }
+
+        if (trimmed.startsWith("##")) {
+          return (
+            <h5 key={index} className="pt-1 text-xs font-black uppercase tracking-[0.2em] text-purple-700">
+              <InlineFormattedText text={trimmed.replace(/^##\s*/, "")} />
+            </h5>
+          );
+        }
+
+        if (trimmed.startsWith("#")) {
+          return (
+            <h4 key={index} className="pt-2 text-base font-black text-slate-900">
+              <InlineFormattedText text={trimmed.replace(/^#\s*/, "")} />
+            </h4>
+          );
+        }
+
+        if (trimmed.startsWith("-")) {
+          return (
+            <p key={index} className="flex gap-2 leading-7 text-slate-700">
+              <span className="text-purple-500">•</span>
+              <span>
+                <InlineFormattedText text={trimmed.replace(/^\-\s*/, "")} />
+              </span>
+            </p>
+          );
+        }
+
+        if (trimmed.startsWith(">")) {
+          return (
+            <blockquote key={index} className="border-l-4 border-purple-200 pl-4 italic text-slate-500">
+              <InlineFormattedText text={trimmed.replace(/^>\s*/, "")} />
+            </blockquote>
+          );
+        }
+
+        return (
+          <p key={index}>
+            <InlineFormattedText text={line} />
+          </p>
+        );
+      })}
+    </div>
+  );
+}
+
 function CompactNoteArtefactPreview({ artefact, expanded }: { artefact: Artefact; expanded: boolean }) {
   const noteType = getNoteArtefactType(artefact.noteKind);
   const Icon = noteType.icon;
@@ -1692,7 +5393,9 @@ function CompactNoteArtefactPreview({ artefact, expanded }: { artefact: Artefact
           <span className="rounded-full bg-white/15 px-2 py-0.5 text-[10px] font-black uppercase tracking-wide">{noteType.label}</span>
         </div>
         <div className="mt-1 truncate text-sm font-black">{artefact.name || "Untitled note"}</div>
-        <div className="mt-0.5 line-clamp-1 text-xs text-white/75">{artefact.caption || "Add note details."}</div>
+        <div className="mt-0.5 line-clamp-2 text-xs text-white/75 whitespace-pre-wrap">
+          {artefact.caption || "Add note details."}
+        </div>
       </div>
       {expanded ? <ChevronDown className="h-4 w-4 text-white/70" /> : <ChevronRight className="h-4 w-4 text-white/70" />}
     </div>
@@ -1709,13 +5412,14 @@ function ArtefactCard({
   dispatch: React.Dispatch<Action>;
 }) {
   const [expanded, setExpanded] = useState(false);
+  const imageSrc = artefact.publicUrl ?? artefact.dataUrl;
 
   return (
     <div className="overflow-hidden rounded-xl border bg-white shadow-sm">
       <button type="button" onClick={() => setExpanded((value) => !value)} className="block w-full text-left">
-        {artefact.type === "photo" && artefact.dataUrl ? (
+        {artefact.type === "photo" && imageSrc ? (
           <div className="flex items-center gap-3 p-3 hover:bg-slate-50">
-            <img src={artefact.dataUrl} alt={artefact.caption || artefact.name} className="h-16 w-16 shrink-0 rounded-lg object-cover" />
+            <img src={imageSrc} alt={artefact.caption || artefact.name} className="h-16 w-16 shrink-0 rounded-lg object-cover" />
             <div className="min-w-0 flex-1">
               <div className="truncate text-sm font-black">{artefact.name || "Untitled photo"}</div>
               <div className="mt-1 line-clamp-2 text-xs text-slate-500">{artefact.caption || "No caption yet."}</div>
@@ -1729,8 +5433,8 @@ function ArtefactCard({
 
       {expanded ? (
         <div className="space-y-2 border-t bg-slate-50 p-3">
-          {artefact.type === "photo" && artefact.dataUrl ? (
-            <img src={artefact.dataUrl} alt={artefact.caption || artefact.name} className="max-h-72 w-full rounded-xl object-cover" />
+          {artefact.type === "photo" && imageSrc ? (
+            <img src={imageSrc} alt={artefact.caption || artefact.name} className="max-h-72 w-full rounded-xl object-cover" />
           ) : (
             <NoteArtefactPreview artefact={artefact} />
           )}
@@ -1792,6 +5496,16 @@ function ArtefactCard({
             </div>
           ) : null}
 
+          {artefact.type === "note" ? (
+            <div className="mb-2 flex flex-wrap gap-2 text-[11px] font-bold text-slate-500">
+              <span className="rounded-full border border-slate-200 bg-white px-2 py-1"># Heading</span>
+              <span className="rounded-full border border-slate-200 bg-white px-2 py-1">## Label</span>
+              <span className="rounded-full border border-slate-200 bg-white px-2 py-1">- Bullet</span>
+              <span className="rounded-full border border-slate-200 bg-white px-2 py-1">&gt; Quote</span>
+              <span className="rounded-full border border-slate-200 bg-white px-2 py-1">Blank line = spacing</span>
+            </div>
+          ) : null}
+
           <textarea
             value={artefact.caption}
             onChange={(event) =>
@@ -1803,8 +5517,19 @@ function ArtefactCard({
               })
             }
             className="min-h-20 w-full rounded-lg border bg-white p-2 text-sm outline-none focus:ring-2 focus:ring-slate-950"
-            placeholder={artefact.type === "photo" ? "Caption this photo e.g. Problem map wall" : "Write the note details..."}
+            placeholder={
+              artefact.type === "photo"
+                ? "Caption this photo e.g. Problem map wall"
+                : "Capture evidence, insight, recommendation, or quotes. Use # for headings, ## for labels, - for bullets, > for quotes, and blank lines for spacing."
+            }
           />
+
+          {/* Expanded formatted preview */}
+          {artefact.type === "note" && artefact.caption ? (
+            <div className="rounded-xl border bg-white p-4">
+              <FormattedArtefactText text={artefact.caption} />
+            </div>
+          ) : null}
         </div>
       ) : null}
     </div>
@@ -1820,6 +5545,7 @@ function ArtefactCapture({
   artefacts: Artefact[];
   dispatch: React.Dispatch<Action>;
 }) {
+  const [isOpen, setIsOpen] = useState(false);
   const handleFiles = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(event.target.files ?? []);
     event.target.value = "";
@@ -1827,12 +5553,26 @@ function ArtefactCapture({
     for (const file of files) {
       if (!file.type.startsWith("image/")) continue;
 
-      const dataUrl = await new Promise<string>((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(String(reader.result));
-        reader.onerror = () => reject(reader.error);
-        reader.readAsDataURL(file);
-      });
+      const path = `artefacts/${createClientId("artefact")}-${file.name}`;
+
+      if (!supabase) {
+        console.error("Supabase is not configured");
+        return;
+      }
+      
+      const { data, error } = await supabase.storage
+        .from("sprint-artefacts")
+        .upload(path, file);
+      
+      if (error) {
+        console.error(error);
+        return;
+      }
+      
+      const publicUrl =
+        supabase.storage
+          .from("sprint-artefacts")
+          .getPublicUrl(path).data.publicUrl;
 
       dispatch({
         type: "artefact/add",
@@ -1842,7 +5582,8 @@ function ArtefactCapture({
           activityKey: activityKeyValue,
           type: "photo",
           name: file.name,
-          dataUrl,
+          storagePath: path,
+          publicUrl,
           caption: "",
           createdAt: Date.now(),
         },
@@ -1889,98 +5630,124 @@ function ArtefactCapture({
 
   return (
     <div className="mt-4 rounded-xl border bg-white p-3">
-      <div className="flex flex-wrap items-center justify-between gap-3">
+      <button
+        type="button"
+        onClick={() => setIsOpen((value) => !value)}
+        className="flex w-full items-center justify-between gap-3 text-left"
+      >
         <div>
           <h3 className="text-sm font-black">Artefacts</h3>
           <p className="mt-1 text-xs text-slate-500">
-            Capture sprint-wall photos, sketches, sticky notes, and room outputs for the report.
+            {artefacts.length
+              ? `${artefacts.length} captured`
+              : "Add photos, notes, decisions, risks, or evidence"}
           </p>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <label className="inline-flex cursor-pointer items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold transition hover:bg-slate-50 focus-within:ring-2 focus-within:ring-slate-950 focus-within:ring-offset-2">
-            <input type="file" accept="image/*" multiple className="sr-only" onChange={handleFiles} />
-            <Download className="h-4 w-4" /> Upload photos
-          </label>
-          <div className="relative">
-            <Button variant="secondary" onClick={() => setNoteMenuOpen((open) => !open)}>
-              <Plus className="h-4 w-4" /> Add note <ChevronDown className="h-4 w-4" />
-            </Button>
-            {noteMenuOpen ? (
-              <div className="absolute right-0 z-20 mt-2 w-56 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl">
-                <div className="border-b bg-slate-50 px-3 py-2 text-xs font-black uppercase tracking-wide text-slate-500">
-                  Choose note type
-                </div>
-                <div className="p-1">
-                  {noteArtefactTypes.map((type) => {
-                    const Icon = type.icon;
-                    return (
-                      <button
-                        key={type.id}
-                        type="button"
-                        onClick={() => addQuickNote(type.id)}
-                        className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-sm font-semibold text-slate-700 hover:bg-slate-100"
-                      >
-                        <span className={cx("flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br text-white", type.color)}>
-                          <Icon className="h-4 w-4" />
-                        </span>
-                        <span>{type.label}</span>
-                      </button>
-                    );
-                  })}
-                </div>
+
+        <ChevronDown
+          className={cx(
+            "h-4 w-4 text-slate-500 transition-transform duration-200",
+            isOpen && "rotate-180",
+          )}
+        />
+      </button>
+
+      {isOpen ? (
+        <div className="mt-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h3 className="text-sm font-black">Artefacts</h3>
+              <p className="mt-1 text-xs text-slate-500">
+                Capture sprint-wall photos, sketches, sticky notes, and room outputs for the report.
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <label className="inline-flex cursor-pointer items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold transition hover:bg-slate-50 focus-within:ring-2 focus-within:ring-slate-950 focus-within:ring-offset-2">
+                <input type="file" accept="image/*" multiple className="sr-only" onChange={handleFiles} />
+                <Download className="h-4 w-4" /> Upload photos
+              </label>
+              <div className="relative">
+                <Button variant="secondary" onClick={() => setNoteMenuOpen((open) => !open)}>
+                  <Plus className="h-4 w-4" /> Add note <ChevronDown className="h-4 w-4" />
+                </Button>
+                {noteMenuOpen ? (
+                  <div className="absolute right-0 z-20 mt-2 w-56 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl">
+                    <div className="border-b bg-slate-50 px-3 py-2 text-xs font-black uppercase tracking-wide text-slate-500">
+                      Choose note type
+                    </div>
+                    <div className="p-1">
+                      {noteArtefactTypes.map((type) => {
+                        const Icon = type.icon;
+                        return (
+                          <button
+                            key={type.id}
+                            type="button"
+                            onClick={() => addQuickNote(type.id)}
+                            className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-sm font-semibold text-slate-700 hover:bg-slate-100"
+                          >
+                            <span className={cx("flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br text-white", type.color)}>
+                              <Icon className="h-4 w-4" />
+                            </span>
+                            <span>{type.label}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ) : null}
               </div>
-            ) : null}
+            </div>
           </div>
-        </div>
-      </div>
 
-      {artefacts.length === 0 ? (
-        <div className="mt-3 rounded-xl border border-dashed border-slate-300 bg-slate-50 p-4 text-sm text-slate-500">
-          No artefacts captured yet. Upload a photo of the wall, sketches, voting board, or add a quick note.
-        </div>
-      ) : (
-        <div className="mt-4 space-y-5">
-          {photoArtefacts.length > 0 ? (
-            <ArtefactGroup
-              title="Photos"
-              description="Room photos, sprint wall captures, sketches, and physical artefacts."
-              icon={Download}
-              badgeClassName="bg-slate-100 text-slate-700"
-              count={photoArtefacts.length}
-              expanded={isGroupExpanded("photos")}
-              onToggle={() => toggleGroup("photos")}
-            >
-              <div className="grid gap-2">
-                {photoArtefacts.map((artefact) => (
-                  <ArtefactCard key={artefact.id} artefact={artefact} activityKeyValue={activityKeyValue} dispatch={dispatch} />
-                ))}
-              </div>
-            </ArtefactGroup>
-          ) : null}
+          {artefacts.length === 0 ? (
+            <div className="mt-3 rounded-xl border border-dashed border-slate-300 bg-slate-50 p-4 text-sm text-slate-500">
+              No artefacts captured yet. Upload a photo of the wall, sketches, voting board, or add a quick note.
+            </div>
+          ) : (
+            <div className="mt-4 space-y-5">
+              {photoArtefacts.length > 0 ? (
+                <ArtefactGroup
+                  title="Photos"
+                  description="Room photos, sprint wall captures, sketches, and physical artefacts."
+                  icon={Download}
+                  badgeClassName="bg-slate-100 text-slate-700"
+                  count={photoArtefacts.length}
+                  expanded={isGroupExpanded("photos")}
+                  onToggle={() => toggleGroup("photos")}
+                >
+                  <div className="grid gap-2">
+                    {photoArtefacts.map((artefact) => (
+                      <ArtefactCard key={artefact.id} artefact={artefact} activityKeyValue={activityKeyValue} dispatch={dispatch} />
+                    ))}
+                  </div>
+                </ArtefactGroup>
+              ) : null}
 
-          {noteArtefactGroups.map((group) => {
-            const Icon = group.icon;
-            return (
-              <ArtefactGroup
-                key={group.id}
-                title={group.label}
-                description={getNoteGroupDescription(group.id)}
-                icon={Icon}
-                badgeClassName={cx("text-white bg-gradient-to-r", group.color)}
-                count={group.artefacts.length}
-                expanded={isGroupExpanded(group.id)}
-                onToggle={() => toggleGroup(group.id)}
-              >
-                <div className="grid gap-2">
-                  {group.artefacts.map((artefact) => (
-                    <ArtefactCard key={artefact.id} artefact={artefact} activityKeyValue={activityKeyValue} dispatch={dispatch} />
-                  ))}
-                </div>
-              </ArtefactGroup>
-            );
-          })}
+              {noteArtefactGroups.map((group) => {
+                const Icon = group.icon;
+                return (
+                  <ArtefactGroup
+                    key={group.id}
+                    title={group.label}
+                    description={getNoteGroupDescription(group.id)}
+                    icon={Icon}
+                    badgeClassName={cx("text-white bg-gradient-to-r", group.color)}
+                    count={group.artefacts.length}
+                    expanded={isGroupExpanded(group.id)}
+                    onToggle={() => toggleGroup(group.id)}
+                  >
+                    <div className="grid gap-2">
+                      {group.artefacts.map((artefact) => (
+                        <ArtefactCard key={artefact.id} artefact={artefact} activityKeyValue={activityKeyValue} dispatch={dispatch} />
+                      ))}
+                    </div>
+                  </ArtefactGroup>
+                );
+              })}
+            </div>
+          )}
         </div>
-      )}
+      ) : null}
     </div>
   );
 }
@@ -2081,50 +5848,150 @@ function DayResources({ day, openHmw }: { day: SprintDay; openHmw: () => void })
   );
 }
 
-function TimerPage({ setPage }: { setPage: (page: Page) => void }) {
-  const [minutes, setMinutes] = useState(5);
+function TimerPage({
+  state,
+  dispatch,
+  onNavigate,
+  facilitatorMode,
+}: {
+  state: AppState;
+  dispatch: React.Dispatch<Action>;
+  onNavigate: (page: Page) => void;
+  facilitatorMode: boolean;
+}) {
+  const activeActivity = useMemo(() => {
+    if (!state.runningActivityId) return null;
+
+    for (const day of sprintDays) {
+      const activity = day.activities.find((item) => activityKey(day.id, item.id) === state.runningActivityId);
+      if (activity) return { day, activity };
+    }
+
+    return null;
+  }, [state.runningActivityId]);
+
+  const countdown = useActivityCountdown(state);
+  const totalSeconds = state.runningActivityDurationSeconds ?? 0;
+  const remainingPercent = totalSeconds > 0 ? Math.max(0, Math.min(100, (countdown.remainingSeconds / totalSeconds) * 100)) : 0;
+  const timerDayColour = activeActivity?.day.colour ?? "green";
+  const c = colour[timerDayColour];
+  const timerTone = {
+    blue: {
+      page: "from-slate-950 via-blue-950 to-slate-950",
+      card: "border-blue-300/20 bg-blue-400/10 shadow-blue-950/40",
+      text: "text-blue-200",
+      progress: "from-blue-300 to-blue-500",
+      pill: "bg-blue-300 text-blue-950",
+    },
+    green: {
+      page: "from-slate-950 via-emerald-950 to-slate-950",
+      card: "border-emerald-300/20 bg-emerald-400/10 shadow-emerald-950/40",
+      text: "text-emerald-200",
+      progress: "from-emerald-300 to-emerald-500",
+      pill: "bg-emerald-300 text-emerald-950",
+    },
+    orange: {
+      page: "from-slate-950 via-orange-950 to-slate-950",
+      card: "border-orange-300/20 bg-orange-400/10 shadow-orange-950/40",
+      text: "text-orange-200",
+      progress: "from-orange-300 to-orange-500",
+      pill: "bg-orange-300 text-orange-950",
+    },
+    purple: {
+      page: "from-slate-950 via-purple-950 to-slate-950",
+      card: "border-purple-300/20 bg-purple-400/10 shadow-purple-950/40",
+      text: "text-purple-200",
+      progress: "from-purple-300 to-purple-500",
+      pill: "bg-purple-300 text-purple-950",
+    },
+  }[timerDayColour];
+
   return (
-    <main className="mx-auto max-w-[1280px] px-6 py-8">
-      <Button variant="secondary" onClick={() => setPage("dashboard")}>
-        <ArrowLeft className="h-4 w-4" /> Back
-      </Button>
+    <main className={cx("min-h-[calc(100vh-68px)] bg-gradient-to-br px-6 py-8 text-white md:px-10 lg:px-16", timerTone.page)}>
+      <div className="mx-auto max-w-[1280px]">
+        <Button variant="secondary" onClick={() => onNavigate("dashboard")}>
+          <ArrowLeft className="h-4 w-4" /> Back
+        </Button>
 
-      <h1 className="mt-6 text-3xl font-black">Activity Timer</h1>
-      <p className="mt-1 text-slate-500">Time-box your design sprint activities for maximum effectiveness</p>
+        <h1 className="mt-6 text-5xl font-black">Live activity timer</h1>
+        <p className="mt-2 max-w-2xl text-slate-300">
+          Synced timer for facilitator and participant views.
+        </p>
 
-      <Panel className="mt-6 p-6 text-center">
-        <h2 className="text-left font-black">Activity Timer</h2>
-        <p className="text-left text-sm text-slate-500">Activity</p>
+        <section className="mt-8 grid gap-6 lg:grid-cols-[1.15fr_0.85fr]">
+          <div className={cx("rounded-[2.5rem] border p-10 text-center shadow-2xl backdrop-blur-xl", timerTone.card)}>
+            {activeActivity ? (
+              <>
+                <div className="flex justify-center">
+                  <span className={cx("rounded-full px-4 py-2 text-xs font-black uppercase tracking-wide", countdown.isOvertime ? "bg-red-300 text-red-950" : timerTone.pill)}>
+                    {activeActivity.day.label}: {activeActivity.activity.title}
+                  </span>
+                </div>
 
-        <div className="mt-8 font-mono text-6xl font-black tabular-nums">{String(minutes).padStart(2, "0")}:00</div>
+                <div
+                  className={cx(
+                    "mt-10 text-8xl font-black leading-none tracking-tight transition-all duration-500 md:text-9xl",
+                    countdown.isOvertime ? "text-red-300" : timerTone.text,
+                    activeActivity && !countdown.isOvertime && "drop-shadow-[0_0_18px_rgba(255,255,255,0.15)]",
+                  )}
+                >
+                  {formatCountdown(countdown.remainingSeconds)}
+                </div>
 
-        <div className="mt-4 flex items-center justify-center gap-3">
-          <Button variant="secondary" onClick={() => setMinutes(Math.max(1, minutes - 1))}>
-            <Minus className="h-4 w-4" />
-          </Button>
-          <span className="text-sm text-slate-500">Minutes</span>
-          <Button variant="secondary" onClick={() => setMinutes(minutes + 1)}>
-            <Plus className="h-4 w-4" />
-          </Button>
-        </div>
+                <div className="mt-4 text-sm font-black uppercase tracking-[0.28em] text-white/60">
+                  Time remaining
+                </div>
 
-        <div className="mt-4 flex flex-wrap justify-center gap-2">
-          {[1, 3, 5, 8, 15, 30].map((m) => (
-            <Button key={m} variant="secondary" onClick={() => setMinutes(m)}>
-              {m} min
-            </Button>
-          ))}
-        </div>
+                <div className="mt-10 h-5 overflow-hidden rounded-full bg-white/10">
+                  <div
+                    className={cx(
+                      "h-full rounded-full bg-gradient-to-r transition-[width] duration-500",
+                      countdown.isOvertime ? "from-red-300 to-red-500" : timerTone.progress,
+                    )}
+                    style={{ width: `${countdown.isOvertime ? 100 : remainingPercent}%` }}
+                  />
+                </div>
 
-        <div className="mt-4 flex justify-center gap-2">
-          <Button>
-            <Play className="h-4 w-4" /> Start
-          </Button>
-          <Button variant="secondary">
-            <RefreshCw className="h-4 w-4" /> Reset
-          </Button>
-        </div>
-      </Panel>
+                <div className="mt-8 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                  <Button variant="secondary" onClick={() => dispatch({ type: "activity/addTime", seconds: 5 * 60 })}>+5 min</Button>
+                  <Button variant="secondary" onClick={() => dispatch({ type: "activity/addTime", seconds: 10 * 60 })}>+10 min</Button>
+                  <Button variant="secondary" onClick={() => dispatch({ type: "activity/stop" })}>Stop</Button>
+                </div>
+              </>
+            ) : (
+              <div className="flex min-h-[420px] flex-col items-center justify-center">
+                <Clock className="h-16 w-16 text-white/30" />
+                <h2 className="mt-6 text-3xl font-black">No activity is running</h2>
+                <p className="mt-3 max-w-xl text-slate-300">
+                  Open a day and choose Run Activity. The timer will start from that activity’s duration.
+                </p>
+              </div>
+            )}
+          </div>
+
+          <aside className="rounded-[2.5rem] bg-white p-8 text-slate-950 shadow-2xl">
+            <h2 className="text-2xl font-black">Timer controls</h2>
+            <p className="mt-2 text-sm text-slate-600">
+              Use the activity controls to extend, pause, or stop the currently running timer.
+            </p>
+
+            <div className="mt-6 space-y-3">
+              <div className="flex items-center justify-between rounded-2xl border p-4">
+                <span className="font-bold text-slate-600">Elapsed</span>
+                <span className="font-black">{formatCountdown(countdown.elapsedSeconds)}</span>
+              </div>
+              <div className="flex items-center justify-between rounded-2xl border p-4">
+                <span className="font-bold text-slate-600">Current timebox</span>
+                <span className="font-black">{totalSeconds ? formatCountdown(totalSeconds) : "--:--"}</span>
+              </div>
+              <div className="flex items-center justify-between rounded-2xl border p-4">
+                <span className="font-bold text-slate-600">Mode</span>
+                <span className="font-black">{facilitatorMode ? "Facilitator" : "Participant"}</span>
+              </div>
+            </div>
+          </aside>
+        </section>
+      </div>
     </main>
   );
 }
@@ -2292,6 +6159,7 @@ function GuideDrawer({ guide, onClose }: { guide: ResourceGuide | null; onClose:
 
   const Icon = guide.icon;
   const content = getGuideContent(guide);
+  const [mode, setMode] = useState<"read" | "facilitate">("read");
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end bg-black/40 p-4" role="dialog" aria-modal="true" aria-label={guide.title}>
@@ -2308,6 +6176,23 @@ function GuideDrawer({ guide, onClose }: { guide: ResourceGuide | null; onClose:
                   <span className="rounded-full bg-slate-100 px-2 py-1 text-[11px] font-black text-slate-600">{guide.kind}</span>
                 </div>
                 <p className="mt-1 text-sm leading-6 text-slate-600">{content.summary}</p>
+
+                <div className="mt-3 inline-grid grid-cols-2 rounded-xl bg-slate-100 p-1">
+                  <button
+                    type="button"
+                    onClick={() => setMode("read")}
+                    className={cx("rounded-lg px-3 py-1.5 text-xs font-black", mode === "read" && "bg-white shadow-sm")}
+                  >
+                    Read mode
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setMode("facilitate")}
+                    className={cx("rounded-lg px-3 py-1.5 text-xs font-black", mode === "facilitate" && "bg-white shadow-sm")}
+                  >
+                    Facilitate mode
+                  </button>
+                </div>
               </div>
             </div>
             <Button variant="ghost" onClick={onClose}>
@@ -2317,39 +6202,94 @@ function GuideDrawer({ guide, onClose }: { guide: ResourceGuide | null; onClose:
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto p-5">
-          <div className="grid gap-3 md:grid-cols-3">
-            <GuideMiniPanel label="Stage" value={guide.stage} />
-            <GuideMiniPanel label="Audience" value={guide.audience} />
-            <GuideMiniPanel label="Use" value={guide.time} />
-          </div>
+          {mode === "read" ? (
+            <>
+              <div className="grid gap-3 md:grid-cols-3">
+                <GuideMiniPanel label="Stage" value={guide.stage} />
+                <GuideMiniPanel label="Audience" value={guide.audience} />
+                <GuideMiniPanel label="Use" value={guide.time} />
+              </div>
 
-          <GuideSection title="Use this when" items={content.useWhen} />
+              <GuideSection title="Use this when" items={content.useWhen} />
 
-          <section className="mt-5 rounded-2xl border bg-slate-50 p-4">
-            <h3 className="font-black">Facilitation pattern</h3>
-            <div className="mt-4 space-y-3">
-              {content.steps.map((step, index) => (
-                <div key={step.title} className="rounded-xl border bg-white p-4">
-                  <div className="flex items-start gap-3">
-                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-slate-950 text-xs font-black text-white">{index + 1}</span>
-                    <div>
-                      <h4 className="font-black">{step.title}</h4>
-                      <p className="mt-1 text-sm leading-6 text-slate-600">{step.detail}</p>
+              <section className="mt-5 rounded-2xl border bg-slate-50 p-4">
+                <h3 className="font-black">Facilitation pattern</h3>
+                <div className="mt-4 space-y-3">
+                  {content.steps.map((step, index) => (
+                    <div key={step.title} className="rounded-xl border bg-white p-4">
+                      <div className="flex items-start gap-3">
+                        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-slate-950 text-xs font-black text-white">
+                          {index + 1}
+                        </span>
+                        <div>
+                          <h4 className="font-black">{step.title}</h4>
+                          <p className="mt-1 text-sm leading-6 text-slate-600">{step.detail}</p>
+                        </div>
+                      </div>
                     </div>
-                  </div>
+                  ))}
                 </div>
-              ))}
-            </div>
-          </section>
+              </section>
 
-          <div className="mt-5 grid gap-5 lg:grid-cols-2">
-            <GuideSection title="Facilitator prompts" items={content.facilitatorPrompts} />
-            <GuideSection title="Checklist" items={content.checklist} />
-            <GuideSection title="Watchouts" items={content.watchouts} tone="warning" />
-            <GuideSection title="Outputs to capture" items={content.outputs} />
-          </div>
+              <div className="mt-5 grid gap-5 lg:grid-cols-2">
+                <GuideSection title="Facilitator prompts" items={content.facilitatorPrompts} />
+                <GuideSection title="Checklist" items={content.checklist} />
+                <GuideSection title="Watchouts" items={content.watchouts} tone="warning" />
+                <GuideSection title="Outputs to capture" items={content.outputs} />
+              </div>
+            </>
+          ) : (
+            <GuideFacilitateMode content={content} />
+          )}
         </div>
       </div>
+    </div>
+  );
+}
+
+function GuideFacilitateMode({ content }: { content: GuideContent }) {
+  return (
+    <div className="mt-5 flex flex-1 flex-col space-y-4">
+      <section className="rounded-2xl border bg-slate-950 p-5 text-white">
+        <h3 className="text-lg font-black">Facilitator script</h3>
+        <p className="mt-1 text-sm text-white/60">Use these prompts live in the room.</p>
+        <div className="mt-4 space-y-3">
+          {content.facilitatorPrompts.map((prompt) => (
+            <div
+              key={prompt}
+              className="rounded-xl border border-white/10 bg-white/10 p-4 text-base leading-7 text-white/90"
+            >
+              “{prompt}”
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <section className="rounded-2xl border bg-white p-5">
+        <h3 className="text-lg font-black">Run this pattern</h3>
+        <div className="mt-4 space-y-3">
+          {content.steps.map((step, index) => (
+            <details key={step.title} className="rounded-xl border bg-slate-50 p-4" open={index === 0}>
+              <summary className="cursor-pointer font-black">
+                {index + 1}. {step.title}
+              </summary>
+              <p className="mt-2 text-sm leading-6 text-slate-600">{step.detail}</p>
+            </details>
+          ))}
+        </div>
+      </section>
+
+      <section className="rounded-2xl border bg-emerald-50 p-5">
+        <h3 className="text-lg font-black">Before you move on</h3>
+        <ul className="mt-3 space-y-2 text-sm leading-6 text-slate-700">
+          {content.checklist.map((item) => (
+            <li key={item} className="flex gap-2">
+              <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
+              <span>{item}</span>
+            </li>
+          ))}
+        </ul>
+      </section>
     </div>
   );
 }
@@ -2380,22 +6320,131 @@ function GuideSection({ title, items, tone = "default" }: { title: string; items
 }
 
 function ResourceTemplateLibrary() {
+  const [selectedTemplate, setSelectedTemplate] = useState<string | null>(null);
+
   return (
-    <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-      {resourceTemplateCards.map((template) => (
-        <Panel key={template} className="p-5">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <h2 className="font-black">{template}</h2>
-              <p className="mt-2 text-sm leading-6 text-slate-500">Reusable worksheet or canvas to support live sprint activities.</p>
+    <>
+      <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+        {resourceTemplateCards.map((template) => (
+          <Panel key={template} className="p-5">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h2 className="font-black">{template}</h2>
+                <p className="mt-2 text-sm leading-6 text-slate-500">Reusable worksheet or canvas to support live sprint activities.</p>
+              </div>
+              <Download className="h-5 w-5 text-slate-400" />
             </div>
-            <Download className="h-5 w-5 text-slate-400" />
+            <Button variant="secondary" className="mt-4 w-full" onClick={() => setSelectedTemplate(template)}>
+              <Eye className="h-4 w-4" /> Preview template
+            </Button>
+          </Panel>
+        ))}
+      </div>
+
+      <TemplatePreviewDrawer template={selectedTemplate} onClose={() => setSelectedTemplate(null)} />
+    </>
+  );
+}
+
+function TemplatePreviewDrawer({ template, onClose }: { template: string | null; onClose: () => void }) {
+  if (!template) return null;
+
+  const lower = template.toLowerCase();
+  const preview = lower.includes("problem") || lower.includes("map")
+    ? {
+        title: template,
+        subtitle: "Map the end-to-end journey, surface pain points, and identify the highest-value area to focus the sprint.",
+        sections: ["Actors / users", "Journey stages", "Pain points", "Questions", "Opportunities"],
+        sample: ["User starts with…", "They get stuck when…", "The biggest risk is…", "How might we…"],
+      }
+    : lower.includes("interview")
+    ? {
+        title: template,
+        subtitle: "A structured interview guide for collecting expert insight without losing the sprint team in open-ended discussion.",
+        sections: ["Expert role", "What they know", "Key constraints", "Risks", "Recommended direction"],
+        sample: ["What should we understand first?", "Where do users struggle most?", "What has been tried before?", "What could block progress?"],
+      }
+    : lower.includes("hmw") || lower.includes("might")
+    ? {
+        title: template,
+        subtitle: "Turn problems, insights, and friction points into useful How Might We prompts for ideation.",
+        sections: ["Insight", "Problem", "HMW question", "Theme", "Priority"],
+        sample: ["How might we help…", "How might we reduce…", "How might we make it easier to…", "How might we support…"],
+      }
+    : lower.includes("voting") || lower.includes("decision")
+    ? {
+        title: template,
+        subtitle: "A decision canvas for narrowing options quickly and making the Decider’s choice visible.",
+        sections: ["Option", "Evidence", "Impact", "Effort", "Decision"],
+        sample: ["Strong signal from users", "Low confidence", "High impact", "Needs Decider input"],
+      }
+    : lower.includes("checklist")
+    ? {
+        title: template,
+        subtitle: "A lightweight facilitator checklist to keep the session moving and make sure outputs are captured.",
+        sections: ["Before session", "During activity", "Before moving on", "After session"],
+        sample: ["Timer visible", "Output clear", "Decisions captured", "Next step agreed"],
+      }
+    : {
+        title: template,
+        subtitle: "A reusable sprint template for capturing decisions, evidence, outputs, and next steps.",
+        sections: ["Context", "Input", "Activity output", "Decision", "Next step"],
+        sample: ["What we know", "What we need to test", "What we decided", "What happens next"],
+      };
+
+  return (
+    <div className="fixed inset-0 z-50 flex justify-end bg-black/40 p-4" role="dialog" aria-modal="true" aria-label={preview.title}>
+      <div className="flex h-full w-full max-w-3xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
+        <div className="border-b p-5">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <div className="inline-flex items-center gap-2 rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-600">
+                <Eye className="h-3.5 w-3.5" /> Template preview
+              </div>
+              <h2 className="mt-3 text-2xl font-black">{preview.title}</h2>
+              <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">{preview.subtitle}</p>
+            </div>
+            <Button variant="ghost" onClick={onClose}>
+              <X className="h-4 w-4" /> Close
+            </Button>
           </div>
-          <Button variant="secondary" className="mt-4 w-full">
-            <Eye className="h-4 w-4" /> Preview template
-          </Button>
-        </Panel>
-      ))}
+        </div>
+
+        <div className="min-h-0 flex-1 overflow-y-auto p-5">
+          <div className="grid gap-4 md:grid-cols-2">
+            <section className="rounded-2xl border bg-slate-50 p-5">
+              <h3 className="font-black">Template structure</h3>
+              <div className="mt-4 space-y-3">
+                {preview.sections.map((section, index) => (
+                  <div key={section} className="flex items-center gap-3 rounded-xl border bg-white p-3">
+                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-slate-950 text-xs font-black text-white">{index + 1}</span>
+                    <span className="text-sm font-black text-slate-800">{section}</span>
+                  </div>
+                ))}
+              </div>
+            </section>
+
+            <section className="rounded-2xl border bg-white p-5">
+              <h3 className="font-black">Example prompts</h3>
+              <ul className="mt-4 space-y-3 text-sm leading-6 text-slate-600">
+                {preview.sample.map((item) => (
+                  <li key={item} className="flex gap-2 rounded-xl bg-slate-50 p-3">
+                    <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
+                    <span>{item}</span>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          </div>
+
+          <section className="mt-5 rounded-2xl border bg-slate-950 p-5 text-white">
+            <h3 className="font-black">How this would be used live</h3>
+            <p className="mt-2 text-sm leading-6 text-white/70">
+              This preview shows the shape of the template and the prompts a facilitator would use in the room. A later export/download step can turn this into a printable worksheet, canvas, or shareable board template.
+            </p>
+          </section>
+        </div>
+      </div>
     </div>
   );
 }
@@ -2492,12 +6541,35 @@ function HmwModal({
                 </>
               ) : (
                 <div className="space-y-2 text-left">
-                  {state.hmws.map((q) => (
-                    <div key={q} className="flex items-center gap-3 rounded-lg bg-slate-100 p-3 text-sm">
-                      <span className="flex-1">{q}</span>
+                {state.hmws.map((q) => (
+                  <div
+                    key={q}
+                    className="flex items-start gap-3 rounded-lg bg-slate-100 p-3 text-sm"
+                  >
+                    <span className="flex-1 leading-6">{q}</span>
+
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        dispatch({ type: "hmw/delete", question: q });
+                      }}
+                      className="rounded-full p-1 text-slate-400 transition hover:bg-red-50 hover:text-red-600"
+                      aria-label="Delete HMW question"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+
+                    <button
+                      type="button"
+                      className="rounded-full p-1 text-slate-400 transition hover:bg-slate-200 hover:text-slate-700"
+                      aria-label="Copy HMW question"
+                    >
                       <Copy className="h-4 w-4" />
-                    </div>
-                  ))}
+                    </button>
+                  </div>
+                ))}
                 </div>
               )}
             </Panel>
@@ -2527,66 +6599,431 @@ function HmwModal({
   );
 }
 
-function HelperPanel({ open, setOpen }: { open: boolean; setOpen: (open: boolean) => void }) {
-  if (!open) {
-    return (
-      <button
-        aria-label="Open facilitator helper"
-        onClick={() => setOpen(true)}
-        className="fixed bottom-8 right-8 z-40 flex h-14 w-14 items-center justify-center rounded-full bg-blue-600 text-white shadow-xl"
-      >
-        <Bot className="h-6 w-6" />
-      </button>
+
+// --- Synthesised report helpers ---
+function summariseSprintThemes(artefacts: Record<string, Artefact[]>) {
+  const allNotes = Object.values(artefacts)
+    .flat()
+    .filter((artefact) => artefact.type === "note");
+
+  const grouped = noteArtefactTypes.map((type) => ({
+    type,
+    artefacts: allNotes.filter((artefact) => (artefact.noteKind ?? "insight") === type.id),
+  }));
+
+  return grouped.filter((group) => group.artefacts.length > 0);
+}
+
+
+function extractTopRecommendations(artefacts: Record<string, Artefact[]>) {
+  return Object.values(artefacts)
+    .flat()
+    .filter(
+      (artefact) =>
+        artefact.type === "note" &&
+        (artefact.noteKind ?? "insight") === "recommendation",
+    )
+    .slice(0, 6)
+    .map((artefact) => ({
+      id: artefact.id,
+      name: artefact.name,
+      caption: artefact.caption || "No additional context added.",
+    }));
+}
+
+function synthesiseTestingRecommendations(testingSessions: Record<string, TestingSession>) {
+  const recommendationTexts = Object.values(testingSessions)
+    .map((session) => session.recommendation?.trim())
+    .filter(
+      (recommendation): recommendation is string =>
+        Boolean(recommendation && recommendation.length > 0),
     );
+
+  if (recommendationTexts.length === 0) {
+    return [];
   }
 
+  const groupedRecommendations: Array<{
+    id: string;
+    name: string;
+    caption: string;
+  }> = [];
+
+  const themes = [
+    {
+      id: "search-flexibility",
+      terms: ["search", "find", "postcode", "partial", "dob", "eligibility", "locality"],
+      name: "Improve flexibility within the support journey",
+      caption:
+        "Testing participants highlighted the need for users to continue progressing even when information is incomplete, uncertain, or varies between local contexts.",
+    },
+    {
+      id: "clarity-language",
+      terms: ["language", "wording", "clarity", "understand", "tone", "content"],
+      name: "Refine language and guidance",
+      caption:
+        "Several recommendations focused on making the experience easier to understand through clearer wording, guidance, and signposting.",
+    },
+    {
+      id: "trust-confidence",
+      terms: ["trust", "confidence", "transparent", "why", "logic", "system"],
+      name: "Increase transparency and reassurance",
+      caption:
+        "Participants wanted greater visibility into how decisions or recommendations were being made so the experience felt more trustworthy and supportive.",
+    },
+    {
+      id: "prioritisation",
+      terms: ["priority", "prioritise", "overwhelming", "too much", "recommendation"],
+      name: "Prioritise information more clearly",
+      caption:
+        "Testing suggested users may benefit from clearer prioritisation so important actions stand out from optional or secondary guidance.",
+    },
+    {
+      id: "data-consent",
+      terms: ["data", "privacy", "consent", "stored", "retained"],
+      name: "Clarify data and consent expectations",
+      caption:
+        "Some recommendations highlighted the importance of making data handling, consent, and information storage more explicit to users.",
+    },
+  ];
+
+  themes.forEach((theme) => {
+    const matchedRecommendations = recommendationTexts.filter((recommendation) => {
+      const lower = recommendation.toLowerCase();
+      return theme.terms.some((term) => lower.includes(term));
+    });
+
+    if (matchedRecommendations.length > 0) {
+      groupedRecommendations.push({
+        id: theme.id,
+        name: theme.name,
+        caption: theme.caption,
+      });
+    }
+  });
+
+  const unmatchedRecommendations = recommendationTexts.filter((recommendation) => {
+    const lower = recommendation.toLowerCase();
+
+    return !themes.some((theme) =>
+      theme.terms.some((term) => lower.includes(term)),
+    );
+  });
+
+  unmatchedRecommendations.slice(0, 2).forEach((recommendation, index) => {
+    groupedRecommendations.push({
+      id: `direct-${index}`,
+      name:
+        recommendation.length > 90
+          ? `${recommendation.slice(0, 87)}...`
+          : recommendation,
+      caption: "Direct recommendation captured during user testing.",
+    });
+  });
+
+  return groupedRecommendations.slice(0, 5);
+}
+
+function buildSprintJourney(state: AppState) {
+  return sprintDays.map((day) => {
+    const completedActivities = day.activities.filter((activity) =>
+      state.completed.includes(activityKey(day.id, activity.id)),
+    );
+
+    const artefacts = Object.entries(state.artefacts)
+      .filter(([key]) => key.startsWith(`${day.id}-`))
+      .flatMap(([, artefacts]) => artefacts);
+
+    const topThemes = noteArtefactTypes
+      .map((type) => ({
+        type,
+        count: artefacts.filter(
+          (artefact) =>
+            artefact.type === "note" &&
+            (artefact.noteKind ?? "insight") === type.id,
+        ).length,
+      }))
+      .filter((item) => item.count > 0)
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 3);
+
+    return {
+      day,
+      completedActivities,
+      artefacts,
+      topThemes,
+    };
+  });
+}
+
+function buildExecutiveSummary(state: AppState) {
+  const allArtefacts = Object.values(state.artefacts).flat();
+  const notes = allArtefacts.filter((artefact) => artefact.type === "note");
+
+  const byKind = (kind: Artefact["noteKind"]) =>
+    notes.filter((artefact) => (artefact.noteKind ?? "insight") === kind);
+
+  const decisions = byKind("decision");
+  const recommendations = byKind("recommendation");
+  const risks = byKind("risk");
+  const insights = byKind("insight");
+  const opportunities = byKind("opportunity");
+  const questions = byKind("question");
+
+  const daySummaries = sprintDays.map((day) => {
+    const completedActivities = day.activities.filter((activity) =>
+      state.completed.includes(activityKey(day.id, activity.id)),
+    );
+
+    const dayArtefacts = Object.entries(state.artefacts)
+      .filter(([key]) => key.startsWith(`${day.id}-`))
+      .flatMap(([, artefacts]) => artefacts);
+
+    const dayNotes = dayArtefacts.filter((artefact) => artefact.type === "note");
+    const topNote = dayNotes.find((artefact) => artefact.caption?.trim() || artefact.name?.trim());
+
+    return {
+      day,
+      completedActivities,
+      artefactCount: dayArtefacts.length,
+      noteCount: dayNotes.length,
+      topNote,
+    };
+  });
+
+  const strongestFinding = insights[0] ?? opportunities[0] ?? questions[0] ?? null;
+  const strongestDecision = decisions[0] ?? null;
+  const strongestRecommendation = recommendations[0] ?? null;
+
+  return {
+    decisions: decisions.length,
+    recommendations: recommendations.length,
+    risks: risks.length,
+    insights: insights.length,
+    opportunities: opportunities.length,
+    questions: questions.length,
+    daySummaries,
+    strongestFinding,
+    strongestDecision,
+    strongestRecommendation,
+    narrative: `This design sprint explored ${state.challenge || "the defined challenge"} for ${
+      state.targetUsers || "the target users"
+    }. Across the sprint, the team completed ${
+      state.completed.length
+    } activities and captured ${allArtefacts.length} evidence items. ${
+      strongestFinding
+        ? `The clearest emerging signal was: ${strongestFinding.name}${
+            strongestFinding.caption ? ` — ${strongestFinding.caption}` : ""
+          }.`
+        : "The summary will become more specific as insights, decisions, risks, and recommendations are captured."
+    } ${
+      strongestRecommendation
+        ? `The strongest next-step recommendation captured was: ${strongestRecommendation.name}${
+            strongestRecommendation.caption ? ` — ${strongestRecommendation.caption}` : ""
+          }.`
+        : ""
+    }`,
+  };
+}
+
+function ReportArtefactsSection({
+  groups,
+}: {
+  groups: Array<{ key: string; artefacts: Artefact[]; context: { day: SprintDay; activity: Activity } | null }>;
+}) {
+  const totalArtefacts = groups.reduce((sum, group) => sum + group.artefacts.length, 0);
+  const [openArtefactDays, setOpenArtefactDays] = useState<Partial<Record<DayId | "unknown", boolean>>>({});
+
+  const dayGroups = sprintDays
+    .map((day) => {
+      const activityGroups = groups.filter((group) => group.context?.day.id === day.id);
+      const artefactCount = activityGroups.reduce((sum, group) => sum + group.artefacts.length, 0);
+
+      return {
+        key: day.id,
+        title: day.label,
+        subtitle: day.title,
+        activityGroups,
+        artefactCount,
+      };
+    })
+    .filter((group) => group.artefactCount > 0);
+
+  const unknownGroups = groups.filter((group) => !group.context);
+  const unknownArtefactCount = unknownGroups.reduce((sum, group) => sum + group.artefacts.length, 0);
+
+  const groupedDays: Array<{
+    key: DayId | "unknown";
+    title: string;
+    subtitle: string;
+    activityGroups: Array<{ key: string; artefacts: Artefact[]; context: { day: SprintDay; activity: Activity } | null }>;
+    artefactCount: number;
+  }> = [
+    ...dayGroups,
+    ...(unknownArtefactCount > 0
+      ? [
+          {
+            key: "unknown" as const,
+            title: "Unassigned evidence",
+            subtitle: "Captured sprint evidence not linked to a specific day",
+            activityGroups: unknownGroups,
+            artefactCount: unknownArtefactCount,
+          },
+        ]
+      : []),
+  ];
+
   return (
-    <aside className="fixed bottom-8 right-8 z-40 w-[360px] rounded-2xl border bg-white shadow-2xl">
-      <div className="flex items-center justify-between border-b p-4">
-        <h2 className="flex items-center gap-2 font-black">
-          <Bot className="h-5 w-5 text-blue-600" /> Facilitator Helper
-        </h2>
-        <Button variant="ghost" onClick={() => setOpen(false)}>
-          <X className="h-4 w-4" />
-        </Button>
+    <Panel className="mt-6 p-6">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h2 className="text-lg font-black">Sprint Evidence & Artefacts</h2>
+          <p className="mt-1 text-sm text-slate-500">Photos and themed notes grouped by the activity that created them.</p>
+        </div>
+        <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-600">{totalArtefacts} captured</span>
       </div>
 
-      <div className="space-y-3 p-4">
-        <div className="rounded-xl bg-slate-100 p-3 text-sm leading-6">
-          Hi! I’m your Facilitator Helper. I can help with timers, navigation, and design sprint questions.
-        </div>
-        <div className="rounded-xl bg-yellow-100 p-3 text-sm leading-6 text-yellow-900">
-          Say “Helper” followed by a command, or click the mic button to start listening.
-        </div>
-      </div>
+      {groupedDays.length === 0 ? (
+        <div className="mt-4 rounded-2xl border border-dashed bg-slate-50 p-5 text-sm text-slate-500">No artefacts captured yet.</div>
+      ) : (
+        <div className="mt-5 space-y-5">
+          {groupedDays.map((dayGroup) => {
+            const isOpen = Boolean(openArtefactDays[dayGroup.key]);
 
-      <div className="border-t p-4">
-        <div className="mb-2 flex gap-2">
-          <Button variant="secondary" className="px-3">
-            <Mic className="h-4 w-4" />
-          </Button>
-          <Button variant="secondary" className="px-3">
-            <Clock className="h-4 w-4" />
-          </Button>
-          <Button variant="secondary" className="px-3">
-            <HelpCircle className="h-4 w-4" />
-          </Button>
+            return (
+              <section key={dayGroup.key} className="rounded-3xl border bg-slate-50 p-4">
+                <button
+                  type="button"
+                  onClick={() =>
+                    setOpenArtefactDays((current) => ({
+                      ...current,
+                      [dayGroup.key]: !current[dayGroup.key],
+                    }))
+                  }
+                  className="flex w-full flex-wrap items-center gap-3 text-left"
+                >
+                  <div>
+                    <h3 className="font-black">{dayGroup.title}</h3>
+                    <p className="mt-1 text-sm text-slate-500">{dayGroup.subtitle}</p>
+                  </div>
+
+                  <span className="ml-auto rounded-full bg-white px-3 py-1 text-xs font-black text-slate-600 shadow-sm">
+                    {dayGroup.artefactCount} captured
+                  </span>
+
+                  <span className="inline-flex items-center gap-1 rounded-full bg-white px-3 py-1 text-xs font-black text-slate-600 shadow-sm">
+                    {isOpen ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+                    {isOpen ? "Collapse" : "Expand"}
+                  </span>
+                </button>
+
+                {isOpen ? (
+                  <div className="mt-5 space-y-5">
+                    {dayGroup.activityGroups.map((activityGroup) => {
+                      const photoArtefacts = activityGroup.artefacts.filter((artefact) => artefact.type === "photo");
+                      const noteGroups = noteArtefactTypes
+                        .map((type) => ({
+                          ...type,
+                          artefacts: activityGroup.artefacts.filter(
+                            (artefact) => artefact.type === "note" && (artefact.noteKind ?? "insight") === type.id,
+                          ),
+                        }))
+                        .filter((type) => type.artefacts.length > 0);
+
+                      return (
+                        <section key={activityGroup.key} className="rounded-2xl border bg-white p-4">
+                          <div className="flex flex-wrap items-center justify-between gap-3">
+                            <div>
+                              <h3 className="font-black">
+                                {activityGroup.context
+                                  ? `${activityGroup.context.day.label}: ${activityGroup.context.activity.title}`
+                                  : activityGroup.key}
+                              </h3>
+                              <p className="mt-1 text-sm text-slate-500">
+                                {activityGroup.context?.activity.deliverable ?? "Captured sprint evidence"}
+                              </p>
+                            </div>
+                            <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-600 shadow-sm">
+                              {activityGroup.artefacts.length}
+                            </span>
+                          </div>
+
+                          {photoArtefacts.length > 0 ? (
+                            <div className="mt-4">
+                              <h4 className="text-sm font-black">Photos</h4>
+                              <div className="mt-2 grid gap-3 md:grid-cols-2">
+                                {photoArtefacts.map((artefact) => (
+                                  <div key={artefact.id} className="overflow-hidden rounded-xl border bg-white">
+                                    {artefact.dataUrl ? (
+                                      <img
+                                        src={artefact.publicUrl ?? artefact.dataUrl}
+                                        alt={artefact.caption || artefact.name}
+                                        className="h-40 w-full object-cover"
+                                      />
+                                    ) : null}
+                                    <div className="p-3">
+                                      <div className="text-sm font-black">{artefact.name}</div>
+                                      <p className="mt-1 text-sm text-slate-500">{artefact.caption || "No caption added."}</p>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          ) : null}
+
+                          {noteGroups.length > 0 ? (
+                            <div className="mt-4 grid gap-3 md:grid-cols-2">
+                              {noteGroups.map((groupType) => {
+                                const Icon = groupType.icon;
+                                return (
+                                  <div key={groupType.id} className="rounded-xl border bg-white p-3">
+                                    <div className="flex items-center gap-2">
+                                      <span
+                                        className={cx(
+                                          "flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br text-white",
+                                          groupType.color,
+                                        )}
+                                      >
+                                        <Icon className="h-4 w-4" />
+                                      </span>
+                                      <h4 className="font-black">{groupType.label}</h4>
+                                      <span className="ml-auto rounded-full bg-slate-100 px-2 py-0.5 text-xs font-black text-slate-600">
+                                        {groupType.artefacts.length}
+                                      </span>
+                                    </div>
+                                    <div className="mt-3 space-y-2">
+                                      {groupType.artefacts.map((artefact) => (
+                                        <div key={artefact.id} className="rounded-lg bg-slate-50 p-3 text-sm">
+                                          <div className="font-black">{artefact.name}</div>
+                                          <div className="mt-1 text-slate-600">{artefact.caption || "No details added."}</div>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          ) : null}
+                        </section>
+                      );
+                    })}
+                  </div>
+                ) : null}
+              </section>
+            );
+          })}
         </div>
-        <div className="flex gap-2">
-          <input
-            className="min-w-0 flex-1 rounded-lg bg-slate-100 p-3 text-sm outline-none focus:ring-2 focus:ring-slate-950"
-            placeholder="Type a message or say 'Helper' + command..."
-          />
-          <Button className="px-3">
-            <Send className="h-4 w-4" />
-          </Button>
-        </div>
-      </div>
-    </aside>
+      )}
+    </Panel>
   );
 }
 
 function ReportPage({ state, onNavigate }: { state: AppState; onNavigate: (page: Page) => void }) {
+  const [openJourneyDays, setOpenJourneyDays] = useState<Partial<Record<DayId, boolean>>>({});
+  const [expandedSections, setExpandedSections] = useState<string[]>([]);
+  const [openTestingSessions, setOpenTestingSessions] = useState<Record<string, boolean>>({});
+  const [isPreparingPdfExport, setIsPreparingPdfExport] = useState(false);
+
   const allKeys = useMemo(() => {
     const keys: string[] = [];
     for (const day of sprintDays) {
@@ -2607,9 +7044,231 @@ function ReportPage({ state, onNavigate }: { state: AppState; onNavigate: (page:
 
   const notesCount = useMemo(() => Object.values(state.notes).filter((v) => v.trim().length > 0).length, [state.notes]);
 
+  const artefactsByActivity = useMemo(() => {
+    return Object.entries(state.artefacts)
+      .map(([key, artefacts]) => ({ key, artefacts, context: getDayAndActivityFromKey(key) }))
+      .filter((group) => group.artefacts.length > 0);
+  }, [state.artefacts]);
+
+  // --- Synthesised report values ---
+  const synthesisedThemes = useMemo(() => summariseSprintThemes(state.artefacts), [state.artefacts]);
+  const recommendations = useMemo(() => {
+    const testingRecommendations = synthesiseTestingRecommendations(state.testingSessions);
+    return testingRecommendations.length > 0 ? testingRecommendations : extractTopRecommendations(state.artefacts);
+  }, [state.artefacts, state.testingSessions]);
+  const totalArtefacts = useMemo(
+    () => Object.values(state.artefacts).reduce((sum, artefacts) => sum + artefacts.length, 0),
+    [state.artefacts],
+  );
+
+  const allArtefacts = useMemo(() => Object.values(state.artefacts).flat(), [state.artefacts]);
+
+  const photoArtefacts = useMemo(
+    () => allArtefacts.filter((artefact) => artefact.type === "photo"),
+    [allArtefacts],
+  );
+
+  const insightArtefacts = useMemo(
+    () =>
+      allArtefacts.filter(
+        (artefact) => artefact.type === "note" && (artefact.noteKind ?? "insight") === "insight",
+      ),
+    [allArtefacts],
+  );
+
+  const opportunityArtefacts = useMemo(
+    () =>
+      allArtefacts.filter(
+        (artefact) => artefact.type === "note" && (artefact.noteKind ?? "insight") === "opportunity",
+      ),
+    [allArtefacts],
+  );
+
+  const decisionArtefacts = useMemo(
+    () =>
+      allArtefacts.filter(
+        (artefact) => artefact.type === "note" && (artefact.noteKind ?? "insight") === "decision",
+      ),
+    [allArtefacts],
+  );
+
+  const riskArtefacts = useMemo(
+    () =>
+      allArtefacts.filter(
+        (artefact) => artefact.type === "note" && (artefact.noteKind ?? "insight") === "risk",
+      ),
+    [allArtefacts],
+  );
+
+  const recommendationArtefacts = useMemo(
+    () =>
+      allArtefacts.filter(
+        (artefact) => artefact.type === "note" && (artefact.noteKind ?? "insight") === "recommendation",
+      ),
+    [allArtefacts],
+  );
+
+  const sprintJourney = useMemo(() => buildSprintJourney(state), [state]);
+  const testingSessions = Object.entries(state.testingSessions ?? {})
+    .map(([key, session]) => {
+      const activity = getDayAndActivityFromKey(key);
+      const participantNumber = key.match(/testing-(\d+)/)?.[1];
+
+      return {
+        key,
+        title: activity?.activity.title ?? "Testing Session",
+        participant: session.participant?.trim() || `Participant ${participantNumber ?? ""}`.trim(),
+        role: session.role ?? "",
+        clarity: session.clarityScore ?? 0,
+        usefulness: session.usefulnessScore ?? 0,
+        confidence: session.confidenceScore ?? 0,
+        completion: session.taskCompletionScore ?? 0,
+        quote: session.keyQuote ?? "",
+        behaviour: session.observedBehaviour ?? "",
+        friction: session.frictionPoint ?? "",
+        positive: session.positiveSignal ?? "",
+        recommendation: session.recommendation ?? "",
+      };
+    })
+    .filter(
+      (session) =>
+        session.quote ||
+        session.behaviour ||
+        session.friction ||
+        session.positive ||
+        session.recommendation ||
+        session.clarity > 0 ||
+        session.usefulness > 0 ||
+        session.confidence > 0 ||
+        session.completion > 0,
+    );
+
+  const averageTestingScore =
+    testingSessions.length > 0
+      ? Math.round(
+          (testingSessions.reduce(
+            (total, session) =>
+              total + session.clarity + session.usefulness + session.confidence + session.completion,
+            0,
+          ) /
+            (testingSessions.length * 4)) *
+            10,
+        ) / 10
+      : 0;
+
+  const handleExportReportPdf = () => {
+    setIsPreparingPdfExport(true);
+
+    setOpenJourneyDays(
+      sprintDays.reduce<Partial<Record<DayId, boolean>>>((acc, day) => {
+        acc[day.id] = true;
+        return acc;
+      }, {}),
+    );
+
+    setOpenTestingSessions(
+      testingSessions.reduce<Record<string, boolean>>((acc, session) => {
+        acc[session.key] = true;
+        return acc;
+      }, {}),
+    );
+
+    setExpandedSections((current) =>
+      Array.from(
+        new Set([
+          ...current,
+          ...recommendations.slice(0, 4).map((artefact) => `next-step-${artefact.id}`),
+        ]),
+      ),
+    );
+
+    window.setTimeout(() => {
+      window.print();
+      window.setTimeout(() => setIsPreparingPdfExport(false), 800);
+    }, 350);
+  };
+
+  const executiveSummary = useMemo(() => buildExecutiveSummary(state), [state]);
+
   return (
     <main className="mx-auto max-w-[1280px] px-6 py-8">
-      <Button variant="secondary" onClick={() => onNavigate("dashboard")}>
+      <style jsx global>{`
+        @media print {
+          @page {
+            size: A4;
+            margin: 14mm;
+          }
+
+          html,
+          body {
+            background: #ffffff !important;
+            color: #0f172a !important;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+          }
+
+          header,
+          nav,
+          footer,
+          aside,
+          button,
+          [data-print-hidden="true"] {
+            display: none !important;
+          }
+
+          main {
+            max-width: none !important;
+            width: 100% !important;
+            padding: 0 !important;
+          }
+
+          section,
+          article,
+          div {
+            box-shadow: none !important;
+          }
+
+          .overflow-x-auto,
+          .overflow-auto,
+          .overflow-hidden {
+            overflow: visible !important;
+          }
+
+          .flex.min-w-max {
+            min-width: 0 !important;
+            display: block !important;
+          }
+
+          .w-\[380px\] {
+            width: 100% !important;
+          }
+
+          .h-\[470px\],
+          .h-\[620px\],
+          .h-\[640px\],
+          .min-h-\[230px\],
+          .min-h-\[245px\] {
+            height: auto !important;
+            min-height: 0 !important;
+          }
+
+          .print\:break-inside-avoid {
+            break-inside: avoid;
+            page-break-inside: avoid;
+          }
+
+          .print\:break-before-page {
+            break-before: page;
+            page-break-before: always;
+          }
+        }
+      `}</style>
+
+      <div className="sr-only" aria-live="polite">
+        {isPreparingPdfExport ? "Preparing the full sprint report for PDF export. Collapsed report sections are being expanded." : ""}
+      </div>
+
+      <Button variant="secondary" onClick={() => onNavigate("dashboard")} data-print-hidden="true">
         <ArrowLeft className="h-4 w-4" /> Back
       </Button>
 
@@ -2618,13 +7277,17 @@ function ReportPage({ state, onNavigate }: { state: AppState; onNavigate: (page:
           <h1 className="text-3xl font-black">Sprint Report</h1>
           <p className="mt-1 text-slate-500">Generated from your captured sprint setup, activity progress, HMWs, and notes.</p>
         </div>
-        <Button>
-          <Download className="h-4 w-4" /> Export report
+        <Button
+          onClick={handleExportReportPdf}
+          aria-label="Export the full sprint report as a PDF-ready print document"
+          data-print-hidden="true"
+        >
+          <Download className="h-4 w-4" /> {isPreparingPdfExport ? "Preparing PDF…" : "Export report"}
         </Button>
       </div>
 
       <div className="mt-6 grid gap-4 lg:grid-cols-3">
-        <Panel className="p-6 lg:col-span-2">
+        <Panel className="p-6 lg:col-span-2 print:break-inside-avoid">
           <h2 className="text-lg font-black">Setup</h2>
           <div className="mt-4 grid gap-4 md:grid-cols-2">
             <div>
@@ -2650,7 +7313,7 @@ function ReportPage({ state, onNavigate }: { state: AppState; onNavigate: (page:
           </div>
         </Panel>
 
-        <Panel className="p-6">
+        <Panel className="p-6 print:break-inside-avoid">
           <h2 className="text-lg font-black">Progress</h2>
           <div className="mt-4 flex items-center justify-between text-sm font-semibold">
             <span>Activities progressed</span>
@@ -2686,6 +7349,660 @@ function ReportPage({ state, onNavigate }: { state: AppState; onNavigate: (page:
               <span>{state.hmws.length}</span>
             </div>
           </div>
+        </Panel>
+      </div>
+
+      <Panel className="mt-6 overflow-hidden border-0 !bg-slate-950 text-white shadow-2xl print:break-inside-avoid">
+        <div className="grid gap-8 p-8 lg:grid-cols-[1.2fr_0.8fr]">
+          <div>
+            <div className="inline-flex items-center gap-2 rounded-full bg-white/10 px-3 py-1 text-xs font-black uppercase tracking-wide text-white/70">
+              Executive summary
+            </div>
+
+            <h2 className="mt-5 text-3xl font-black leading-tight lg:text-4xl">
+              Sprint outcomes and strategic direction
+            </h2>
+
+            <div className="mt-5 max-w-3xl space-y-4 text-base leading-8 text-white/75">
+              <p>
+                This Design Sprint provided a structured and evidence-led approach to exploring a complex service and user experience challenge. The sprint methodology enabled the team to move rapidly from assumptions and fragmented understanding towards clearer strategic direction and validated learning.
+              </p>
+
+              <p>
+                The sprint explored the challenge of {state.challenge || "improving the current service experience"}, with a particular focus on the needs of {state.targetUsers || "users, stakeholders, and delivery teams"}. The intended outcome was {state.desiredOutcome || "a clearer and more validated future direction"}.
+              </p>
+
+              <p>
+                Across the four sprint days, the team progressed through collaborative problem framing, expert insight gathering, opportunity identification, solution generation, structured decision-making, storyboarding, prototyping, and user validation activities. This resulted in {totalArtefacts} captured evidence items and the completion of {progress.count} out of {progress.total} planned sprint activities.
+              </p>
+
+              <p>
+                Beyond the prototype itself, the sprint created shared understanding across stakeholders, surfaced risks and opportunities earlier in the process, and generated practical evidence to support future service, policy, operational, and delivery decisions.
+              </p>
+            </div>
+
+            <div className="mt-6 grid gap-3 sm:grid-cols-3">
+              <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                <div className="text-3xl font-black">{executiveSummary.decisions}</div>
+                <div className="mt-1 text-xs font-black uppercase tracking-wide text-white/60">
+                  Key decisions
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                <div className="text-3xl font-black">{executiveSummary.recommendations}</div>
+                <div className="mt-1 text-xs font-black uppercase tracking-wide text-white/60">
+                  Recommendations
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                <div className="text-3xl font-black">{executiveSummary.risks}</div>
+                <div className="mt-1 text-xs font-black uppercase tracking-wide text-white/60">
+                  Risks identified
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="rounded-[2rem] border border-white/10 bg-white/5 p-6 backdrop-blur-xl">
+            <div className="text-xs font-black uppercase tracking-wide text-white/60">
+              Sprint status
+            </div>
+
+            <div className="mt-4 h-4 overflow-hidden rounded-full bg-white/10">
+              <div
+                className="h-full rounded-full bg-gradient-to-r from-white to-white/60"
+                style={{ width: `${progress.pct}%` }}
+              />
+            </div>
+
+            <div className="mt-3 flex items-center justify-between text-sm text-white/70">
+              <span>Completion progress</span>
+              <span>{progress.pct}%</span>
+            </div>
+
+            <div className="mt-8 space-y-4">
+              {sprintJourney.map((entry) => (
+                <div key={entry.day.id} className="rounded-2xl border border-white/10 bg-black/10 p-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <div className="text-sm font-black">{entry.day.label}</div>
+                      <div className="text-xs text-white/60">
+                        {entry.completedActivities.length} activities completed
+                      </div>
+                    </div>
+
+                    <span className="rounded-full bg-white/10 px-3 py-1 text-[11px] font-black text-white/80">
+                      {entry.artefacts.length} artefacts
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </Panel>
+
+      {/* Synthesised sprint outcome summary & recommendations */}
+      <div className="mt-6 grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
+        <Panel className="p-6 print:break-inside-avoid">
+          <div>
+            <div>
+              <h2 className="text-lg font-black">Sprint Outcome Summary</h2>
+              <p className="mt-1 text-sm text-slate-500">
+                A synthesised overview of the sprint direction, evidence, decisions, and opportunities.
+              </p>
+            </div>
+          </div>
+
+          <div className="mt-5 grid gap-4 md:grid-cols-2">
+            <div className="rounded-2xl border bg-slate-50 p-4">
+              <div className="text-xs font-black uppercase tracking-wide text-slate-500">
+                Sprint challenge
+              </div>
+              <div className="mt-2 text-sm leading-6 text-slate-700">
+                {state.challenge || "No challenge statement captured yet."}
+              </div>
+            </div>
+
+            <div className="rounded-2xl border bg-slate-50 p-4">
+              <div className="text-xs font-black uppercase tracking-wide text-slate-500">
+                Desired outcome
+              </div>
+              <div className="mt-2 text-sm leading-6 text-slate-700">
+                {state.desiredOutcome || "No desired outcome captured yet."}
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-5 rounded-2xl border bg-slate-950 p-5 text-white">
+            <div className="text-xs font-black uppercase tracking-wide text-white/60">
+              Sprint narrative
+            </div>
+            <p className="mt-3 text-sm leading-7 text-white/80">
+              This sprint explored opportunities around {state.challenge || "the stated challenge"}. Throughout the sprint,
+              the team generated ideas, aligned around a preferred direction, captured evidence, and documented risks,
+              opportunities, decisions, and recommendations to support future product or service decisions.
+            </p>
+          </div>
+
+          <div className="mt-5 flex flex-wrap gap-3">
+            <div className="rounded-full bg-slate-100 px-4 py-2 text-sm font-black text-slate-700">
+              Photos {photoArtefacts.length}
+            </div>
+
+            <div className="rounded-full bg-blue-100 px-4 py-2 text-sm font-black text-blue-700">
+              Insights {insightArtefacts.length}
+            </div>
+
+            <div className="rounded-full bg-emerald-100 px-4 py-2 text-sm font-black text-emerald-700">
+              Opportunities {opportunityArtefacts.length}
+            </div>
+
+            <div className="rounded-full bg-purple-100 px-4 py-2 text-sm font-black text-purple-700">
+              Decisions {decisionArtefacts.length}
+            </div>
+
+            <div className="rounded-full bg-red-100 px-4 py-2 text-sm font-black text-red-700">
+              Risks {riskArtefacts.length}
+            </div>
+
+            <div className="rounded-full bg-cyan-100 px-4 py-2 text-sm font-black text-cyan-700">
+              Recommendations {recommendationArtefacts.length}
+            </div>
+          </div>
+        </Panel>
+
+        <Panel className="p-6 print:break-inside-avoid">
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="text-lg font-black">Recommended Next Steps</h2>
+          </div>
+
+          {recommendations.length === 0 ? (
+            <div className="mt-4 rounded-2xl border border-dashed bg-slate-50 p-5 text-sm text-slate-500">
+              No recommendations captured yet. Add recommendations in Day 4 testing sessions or as recommendation notes in activity artefacts.
+            </div>
+          ) : (
+            <div className="mt-4 rounded-3xl border bg-slate-50 p-6">
+              <div className="text-xs font-black uppercase tracking-wide text-slate-500">
+                Next steps summary
+              </div>
+
+              <p className="mt-3 text-sm leading-7 text-slate-700">
+                User testing suggests the next iteration should focus on making the journey easier to understand, reducing friction at key moments, and preserving the parts of the experience that users found most valuable.
+              </p>
+
+              <div className="mt-5 space-y-3">
+                {recommendations.slice(0, 4).map((artefact, index) => {
+                  const accordionId = `next-step-${artefact.id}`;
+                  const isOpen = expandedSections.includes(accordionId);
+
+                  return (
+                    <div
+                      key={artefact.id}
+                      className="overflow-hidden rounded-2xl border bg-white shadow-sm"
+                    >
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setExpandedSections((current) =>
+                            current.includes(accordionId)
+                              ? current.filter((id) => id !== accordionId)
+                              : [...current, accordionId],
+                          )
+                        }
+                        className="flex w-full items-center gap-3 px-4 py-4 text-left transition hover:bg-slate-50"
+                      >
+                        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-xs font-black text-emerald-700">
+                          {index + 1}
+                        </div>
+
+                        <div className="flex-1 text-sm font-black text-slate-900">
+                          {artefact.name}
+                        </div>
+
+                        {isOpen ? (
+                          <ChevronDown className="h-4 w-4 text-slate-400" />
+                        ) : (
+                          <ChevronRight className="h-4 w-4 text-slate-400" />
+                        )}
+                      </button>
+
+                      {isOpen && (
+                        <div className="border-t bg-slate-50 px-4 py-4">
+                          <p className="text-sm leading-7 text-slate-600">
+                            {artefact.caption}
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+
+              <p className="mt-5 border-t pt-4 text-sm leading-7 text-slate-600">
+                Together, these actions provide a focused route into the next phase of design or delivery: refine the experience, strengthen user confidence, and carry forward the clearest positive signals from validation.
+              </p>
+            </div>
+          )}
+        </Panel>
+      </div>
+
+      <div className="mt-15">
+        <div className="mb-4 flex items-end justify-between gap-4">
+          <div>
+            <div className="text-xs font-black uppercase tracking-[0.3em] text-slate-400">
+              Part 1 · Sprint playback
+            </div>
+            <h2 className="mt-2 text-2xl font-black text-slate-950 lg:text-3xl">
+              How the design sprint unfolded
+            </h2>
+            <p className="mt-2 max-w-3xl text-sm leading-7 text-slate-500">
+              A chronological playback of the sprint before moving into what was learned during user testing.
+            </p>
+          </div>
+        </div>
+
+        <Panel className="p-6 print:break-inside-avoid">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <h3 className="text-lg font-black">Sprint Journey</h3>
+              <p className="mt-1 text-sm text-slate-500">
+                Expand each day to review the activities completed and time allocated.
+              </p>
+            </div>
+          </div>
+
+          <div className="mt-6 grid items-start gap-5 md:grid-cols-2 2xl:grid-cols-4">
+            {sprintJourney.map((entry, index) => {
+              const isOpen = Boolean(openJourneyDays[entry.day.id]);
+              const Icon = entry.day.icon;
+
+              return (
+                <section
+                  key={entry.day.id}
+                  className={cx(
+                    "flex flex-col rounded-[1.75rem] border bg-slate-50/80 p-6 shadow-md shadow-slate-200/70 transition hover:-translate-y-0.5 hover:bg-white hover:shadow-lg",
+                    isOpen ? "h-auto" : "h-[470px]"
+                  )}
+                >
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between gap-3">
+                      <div
+                        className={cx(
+                          "flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white ring-2",
+                          colour[entry.day.colour].text,
+                          colour[entry.day.colour].ring,
+                        )}
+                      >
+                        <Icon className="h-5 w-5" />
+                      </div>
+
+                      <span className="whitespace-nowrap rounded-full bg-white px-3 py-1.5 text-xs font-black text-slate-600 shadow-sm ring-1 ring-slate-200">
+                        {entry.completedActivities.length} completed
+                      </span>
+                    </div>
+
+                    <h3 className="text-3xl font-black tracking-tight text-slate-700">
+                      {entry.day.label}
+                    </h3>
+                  </div>
+
+                  <div className="mt-8 min-h-[245px]">
+                    <p className="text-xl font-black tracking-tight text-slate-700">
+                      {entry.day.guideLabel.replace(" Guide", "")}
+                    </p>
+
+                    <p className="mt-5 text-base leading-8 text-slate-600">
+                      {entry.day.summary}
+                    </p>
+                  </div>
+
+                  <div className="flex justify-end pt-6">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setOpenJourneyDays((current) => ({
+                          ...current,
+                          [entry.day.id]: !current[entry.day.id],
+                        }))
+                      }
+                      className="inline-flex items-center gap-2 rounded-full bg-white px-4 py-2 text-sm font-black text-slate-600 shadow-md shadow-slate-200/80 ring-1 ring-slate-200 transition hover:text-slate-950"
+                    >
+                      {isOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                      {isOpen ? "Collapse" : "Expand"}
+                    </button>
+                  </div>
+
+                  {isOpen ? (
+                    <div className="mt-5 border-t border-slate-200 pt-5">
+                      {entry.topThemes.length > 0 ? (
+                        <div className="flex flex-wrap gap-2">
+                          {entry.topThemes.map((theme) => (
+                            <span
+                              key={theme.type.id}
+                              className="rounded-full bg-slate-950 px-3 py-1 text-xs font-black text-white"
+                            >
+                              {theme.type.label} · {theme.count}
+                            </span>
+                          ))}
+                        </div>
+                      ) : null}
+
+                      <div className="mt-5 grid gap-3">
+                        {entry.day.activities.map((activity) => {
+                          const isCompleted = state.completed.includes(
+                            activityKey(entry.day.id, activity.id),
+                          );
+
+                          const duration = activity.duration;
+
+                          return (
+                            <div
+                              key={activity.id}
+                              className="rounded-2xl border bg-white p-4 shadow-sm"
+                            >
+                              <div className="flex items-start justify-between gap-3">
+                                <div>
+                                  <div className="text-sm font-black text-slate-900">
+                                    {activity.title}
+                                  </div>
+
+                                  <div className="mt-2 text-sm text-slate-500">
+                                    {duration} allocated
+                                  </div>
+                                </div>
+
+                                <span
+                                  className={cx(
+                                    "rounded-full px-3 py-1 text-[11px] font-black",
+                                    isCompleted
+                                      ? "bg-emerald-100 text-emerald-700"
+                                      : "bg-slate-100 text-slate-500",
+                                  )}
+                                >
+                                  {isCompleted ? "Completed" : "Pending"}
+                                </span>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ) : null}
+                </section>
+              );
+            })}
+          </div>
+        </Panel>
+
+        <div className="mt-15">
+          <div className="mb-4 flex items-end justify-between gap-4">
+            <div>
+              <div className="text-xs font-black uppercase tracking-[0.3em] text-slate-400">
+                Sprint evidence & artefacts
+              </div>
+
+              <h3 className="mt-2 text-xl font-black text-slate-950 lg:text-2xl">
+                Captured outputs from across the sprint
+              </h3>
+
+              <p className="mt-2 max-w-3xl text-sm leading-7 text-slate-500">
+                Supporting evidence, workshop captures, notes, and artefacts
+                collected throughout the sprint journey.
+              </p>
+            </div>
+          </div>
+
+          <ReportArtefactsSection groups={artefactsByActivity} />
+        </div>
+      </div>
+
+      {testingSessions.length > 0 ? (
+        <div className="mt-15">
+          <div className="mb-4 flex items-end justify-between gap-4">
+            <div>
+              <div className="text-xs font-black uppercase tracking-[0.3em] text-purple-500">
+                Part 2 · Testing results
+              </div>
+              <h2 className="mt-2 text-2xl font-black text-slate-950 lg:text-3xl">
+                What we learned from users
+              </h2>
+              <p className="mt-2 max-w-3xl text-sm leading-7 text-slate-500">
+                A focused evidence section for Day 4 validation, showing what users understood, where they struggled, and what the team should do next.
+              </p>
+            </div>
+          </div>
+
+          <Panel className="overflow-hidden border-purple-100 bg-gradient-to-br from-purple-50 via-white to-white p-6 shadow-sm print:break-inside-avoid">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+            <div>
+              <div className="text-xs font-black uppercase tracking-[0.3em] text-purple-500">
+                Day 4 validation
+              </div>
+              <h2 className="mt-3 text-2xl font-black text-slate-950 lg:text-3xl">
+                User testing session evidence
+              </h2>
+              <p className="mt-3 max-w-3xl text-sm leading-7 text-slate-600">
+                Structured evidence captured during user testing, combining Likert scores with quotes,
+                observed behaviours, friction points, positive signals, and session recommendations.
+              </p>
+            </div>
+
+            <div className="rounded-3xl border border-purple-100 bg-white px-6 py-5 shadow-sm">
+              <div className="text-xs font-black uppercase tracking-wide text-slate-400">
+                Average validation score
+              </div>
+              <div className="mt-2 text-5xl font-black text-purple-600">
+                {averageTestingScore}
+                <span className="text-2xl text-slate-950">/5</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-6 overflow-x-auto pb-2">
+            <div className="flex min-w-max items-start gap-4">
+              {testingSessions.map((session, index) => {
+                const sessionAverage = Math.round(
+                  ((session.clarity + session.usefulness + session.confidence + session.completion) / 4) * 10,
+                ) / 10;
+                const isTestingSessionOpen = Boolean(openTestingSessions[session.key]);
+
+                return (
+                  <section
+                    key={session.key}
+                    className={cx(
+                      "flex w-[380px] flex-shrink-0 flex-col rounded-3xl border border-purple-100 bg-white p-5 shadow-sm",
+                      isTestingSessionOpen ? "h-auto" : "h-[620px]",
+                    )}
+                  >
+                    <div className="flex items-start justify-between gap-4">
+                      <div>
+                        <div className="inline-flex rounded-full bg-purple-100 px-3 py-1 text-[11px] font-black uppercase tracking-wide text-purple-700">
+                          Participant {index + 1}
+                        </div>
+
+                        <h3 className="mt-2 text-xl font-black text-slate-950">
+                          {session.participant}
+                        </h3>
+                        {session.role ? <p className="mt-1 text-sm text-slate-500">{session.role}</p> : null}
+                      </div>
+
+                      <div className="rounded-2xl bg-purple-100 px-3 py-2 text-sm font-black text-purple-700">
+                        {sessionAverage}/5
+                      </div>
+                    </div>
+
+                    <div className="mt-5 grid grid-cols-2 gap-3 text-center">
+                      <div className="rounded-2xl bg-purple-50 p-3">
+                        <div className="text-[11px] font-bold uppercase tracking-wide text-purple-500">Clarity</div>
+                        <div className="mt-1 text-2xl font-black text-purple-700">{session.clarity}</div>
+                      </div>
+                      <div className="rounded-2xl bg-purple-50 p-3">
+                        <div className="text-[11px] font-bold uppercase tracking-wide text-purple-500">Useful</div>
+                        <div className="mt-1 text-2xl font-black text-purple-700">{session.usefulness}</div>
+                      </div>
+                      <div className="rounded-2xl bg-purple-50 p-3">
+                        <div className="text-[11px] font-bold uppercase tracking-wide text-purple-500">Confidence</div>
+                        <div className="mt-1 text-2xl font-black text-purple-700">{session.confidence}</div>
+                      </div>
+                      <div className="rounded-2xl bg-purple-50 p-3">
+                        <div className="text-[11px] font-bold uppercase tracking-wide text-purple-500">Completion</div>
+                        <div className="mt-1 text-2xl font-black text-purple-700">{session.completion}</div>
+                      </div>
+                    </div>
+
+                    <div className="mt-5 flex flex-1 flex-col">
+                      {session.quote ? (
+                        <div className="flex min-h-[230px] flex-col rounded-2xl border bg-slate-50 p-4">
+                          <div className="text-xs font-black uppercase tracking-wide text-slate-500">Key quote</div>
+                          <div className="mt-2">
+                          <FormattedArtefactText text={session.quote} />
+                          </div>
+                        </div>
+                      ) : null}
+
+                      <div className="mt-auto flex justify-end pt-6">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setOpenTestingSessions((current) => ({
+                              ...current,
+                              [session.key]: !current[session.key],
+                            }))
+                          }
+                          className="inline-flex items-center gap-2 rounded-full bg-white px-4 py-2 text-sm font-black text-slate-600 shadow-sm ring-1 ring-slate-200 transition hover:text-purple-700"
+                        >
+                          {isTestingSessionOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                          {isTestingSessionOpen ? "Show less" : "Show more evidence"}
+                        </button>
+                      </div>
+
+                      {isTestingSessionOpen ? (
+                        <div className="mt-6 space-y-4 border-t border-purple-100 pt-6">
+                          {session.behaviour ? (
+                            <div>
+                              <div className="mt-6 text-xs font-black uppercase tracking-wide text-blue-500">Observed behaviour</div>
+                              <div className="mt-2">
+                                <FormattedArtefactText text={session.behaviour} />
+                              </div>
+                            </div>
+                          ) : null}
+
+                          {session.positive ? (
+                            <div>
+                              <div className="mt-12 text-xs font-black uppercase tracking-wide text-emerald-500">Strongest positive signal</div>
+                              <div className="mt-2">
+                                <SessionRecommendationText text={session.positive} />
+                              </div>
+                            </div>
+                          ) : null}
+
+                          {session.friction ? (
+                            <div>
+                              <div className="mt-12 text-xs font-black uppercase tracking-wide text-amber-500">Main friction point</div>
+                              <div className="mt-2">
+                                <FormattedArtefactText text={session.friction} />
+                              </div>
+                            </div>
+                          ) : null}
+
+                          {session.recommendation ? (
+                            <div className="pt-8 rounded-2xl border border-purple-200 bg-purple-50 p-6">
+                              <div className="pb-4 text-xs font-black uppercase tracking-wide text-purple-700">Session recommendation</div>
+                              <div className="mt-2">
+                              <SessionRecommendationText text={session.recommendation} />
+                              </div>
+                            </div>
+                          ) : null}
+                        </div>
+                      ) : null}
+                    </div>
+                  </section>
+                );
+              })}
+            </div>
+          </div>
+          </Panel>
+        </div>
+      ) : null}
+
+      {/* Synthesised sprint themes section */}
+      <div className="mt-15">
+        <div className="mb-4 flex items-end justify-between gap-4">
+          <div>
+            <div className="text-xs font-black uppercase tracking-[0.3em] text-slate-400">
+              Part 3 · Outcomes & evidence
+            </div>
+            <h2 className="mt-2 text-2xl font-black text-slate-950 lg:text-3xl">
+              What this means for the next step
+            </h2>
+            <p className="mt-2 max-w-3xl text-sm leading-7 text-slate-500">
+              Synthesised themes, decisions, recommendations, and the underlying evidence captured during the sprint.
+            </p>
+          </div>
+        </div>
+
+        <Panel className="p-6 print:break-inside-avoid">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h2 className="text-lg font-black">Synthesised Sprint Themes</h2>
+            <p className="mt-1 text-sm text-slate-500">
+              Grouped insights, opportunities, decisions, risks, and recommendations captured across the sprint.
+            </p>
+          </div>
+          <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-600">
+            {synthesisedThemes.length} themes
+          </span>
+        </div>
+
+        {synthesisedThemes.length === 0 ? (
+          <div className="mt-4 rounded-2xl border border-dashed bg-slate-50 p-5 text-sm text-slate-500">
+            No synthesised themes captured yet.
+          </div>
+        ) : (
+          <div className="mt-5 grid gap-4 lg:grid-cols-2">
+            {synthesisedThemes.map((group) => {
+              const Icon = group.type.icon;
+
+              return (
+                <section key={group.type.id} className="rounded-2xl border bg-slate-50 p-4">
+                  <div className="flex items-center gap-3">
+                    <div
+                      className={cx(
+                        "flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br text-white",
+                        group.type.color,
+                      )}
+                    >
+                      <Icon className="h-4 w-4" />
+                    </div>
+
+                    <div>
+                      <h3 className="font-black">{group.type.label}</h3>
+                      <p className="text-xs text-slate-500">
+                        {group.artefacts.length} captured items
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 space-y-3">
+                    {group.artefacts.slice(0, 6).map((artefact) => (
+                      <div key={artefact.id} className="rounded-xl border bg-white p-3">
+                        <div className="text-sm font-black text-slate-900">
+                          {artefact.name || "Untitled note"}
+                        </div>
+                        <div className="mt-1 text-sm leading-6 text-slate-600">
+                          {artefact.caption || "No additional detail added."}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              );
+            })}
+          </div>
+        )}
         </Panel>
       </div>
 
@@ -2732,9 +8049,220 @@ function ReportPage({ state, onNavigate }: { state: AppState; onNavigate: (page:
 export default function DesignSprintFacilitatorApp() {
   const [page, setPage] = useState<Page>("dashboard");
   const [state, dispatch] = useReducer(reducer, initialState);
+  const lastRealtimeStateRef = useRef<string | null>(null);
+  const lastLocalSaveAtRef = useRef(0);
+  const activeSessionIdRef = useRef<string | null>(null);
+  const [facilitatorMode, setFacilitatorMode] = useState(false);
+  useEffect(() => {
+    if (!facilitatorMode) {
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+  }, [facilitatorMode]);
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  const [hasLoadedSavedSession, setHasLoadedSavedSession] = useState(false);
+
+  useEffect(() => {
+    if (hasLoadedSavedSession) return;
+  
+    const fallback = window.setTimeout(() => {
+      console.warn("SprintPilot session load fallback triggered");
+      setHasLoadedSavedSession(true);
+    }, 3000);
+  
+    return () => window.clearTimeout(fallback);
+  }, [hasLoadedSavedSession]);
+
+  useEffect(() => {
+    let cancelled = false;
+  
+    async function loadSession() {
+      const localSession = loadActiveSession();
+  
+      if (supabase) {
+        const liveCloudSession = await loadLatestLiveCloudSession();
+        if (cancelled) return;
+  
+        if (liveCloudSession) {
+          const existingSessions = readStoredSessions();
+          const mergedSessions = [
+            liveCloudSession,
+            ...existingSessions.filter(
+              (session) =>
+                session.id !== liveCloudSession.id &&
+                session.cloudId !== liveCloudSession.cloudId,
+            ),
+          ];
+  
+          writeStoredSessions(mergedSessions);
+
+          if (typeof window !== "undefined") {
+            window.localStorage.setItem(SPRINTPILOT_ACTIVE_SESSION_KEY, liveCloudSession.id);
+          }
+
+          activeSessionIdRef.current = liveCloudSession.id;
+          setActiveSessionId(liveCloudSession.id);
+          dispatch({
+            type: "session/replace",
+            state: normaliseAppState(liveCloudSession.state),
+          });
+          setHasLoadedSavedSession(true);
+          return;
+        }
+      }
+  
+      if (cancelled) return;
+  
+      setActiveSessionId(localSession.id);
+      activeSessionIdRef.current = localSession.id;
+      dispatch({
+        type: "session/replace",
+        state: normaliseAppState(localSession.state),
+      });
+      setHasLoadedSavedSession(true);
+    }
+  
+    void loadSession();
+  
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: "auto" });
+  }, [page]);
+
+  useEffect(() => {
+    activeSessionIdRef.current = activeSessionId;
+  }, [activeSessionId]);
+
+  // AUTOSAVE EFFECT
+  useEffect(() => {
+    if (!hasLoadedSavedSession || !activeSessionId) return;
+
+    // Participant mode is a read-only display surface. Only facilitator mode should write sprint state.
+    if (!facilitatorMode) return;
+
+    const stateSignature = JSON.stringify(state);
+    if (lastRealtimeStateRef.current === stateSignature) {
+      lastRealtimeStateRef.current = null;
+      return;
+    }
+
+    const timeout = window.setTimeout(() => {
+      lastLocalSaveAtRef.current = Date.now();
+      saveSessionState(activeSessionId, state);
+
+      const activeSession = readStoredSessions().find((session) => session.id === activeSessionId);
+      const broadcastSessionId = activeSession?.cloudId ?? activeSession?.id ?? activeSessionId;
+
+      if (supabase && broadcastSessionId) {
+        void supabase.channel(`sprint_session_live_${broadcastSessionId}`).send({
+          type: "broadcast",
+          event: "state_update",
+          payload: {
+            sessionId: broadcastSessionId,
+            state,
+            sentAt: Date.now(),
+          },
+        });
+      }
+    }, 800);
+
+    return () => window.clearTimeout(timeout);
+  }, [activeSessionId, facilitatorMode, hasLoadedSavedSession, state]);
+
+  // REALTIME EFFECT
+  useEffect(() => {
+    if (!supabase || !activeSessionId) return;
+
+    const storedSessions = readStoredSessions();
+    const activeSession = storedSessions.find((session) => session.id === activeSessionId);
+    const broadcastSessionId = activeSession?.cloudId ?? activeSession?.id ?? activeSessionId;
+
+    const broadcastChannel = supabase
+      .channel(`sprint_session_live_${broadcastSessionId}`)
+      .on("broadcast", { event: "state_update" }, ({ payload }) => {
+        if (!payload?.state) return;
+
+        console.log("Sprint broadcast update received", payload.sessionId);
+
+        const incomingTimestamp = payload?.sentAt ?? 0;
+        if (incomingTimestamp && incomingTimestamp <= lastLocalSaveAtRef.current) return;
+
+        const nextState = normaliseAppState(payload.state as AppState);
+        const stateSignature = JSON.stringify(nextState);
+        lastRealtimeStateRef.current = stateSignature;
+        dispatch({ type: "session/replace", state: nextState });
+      })
+      .subscribe((status) => {
+        console.log("Sprint broadcast status", status);
+      });
+
+    const postgresChannel = supabase
+      .channel("sprint_sessions_realtime")
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "sprint_sessions",
+        },
+        (payload) => {
+          const updated = payload.new as CloudSprintSessionRow;
+          if (!updated?.id || !updated?.state) return;
+
+          const currentActiveSessionId = activeSessionIdRef.current;
+          const currentStoredSessions = readStoredSessions();
+          const currentSession = currentStoredSessions.find((session) => session.id === currentActiveSessionId);
+          const activeCloudId = currentSession?.cloudId ?? currentSession?.id ?? currentActiveSessionId;
+
+          console.log("Sprint postgres realtime update received", {
+            updatedId: updated.id,
+            currentActiveSessionId,
+            activeCloudId,
+          });
+
+          if (updated.id !== currentActiveSessionId && updated.id !== activeCloudId) return;
+
+          const incomingUpdatedAt = updated.updated_at ? new Date(updated.updated_at).getTime() : 0;
+          if (incomingUpdatedAt && incomingUpdatedAt <= lastLocalSaveAtRef.current) return;
+
+          const nextState = normaliseAppState(updated.state);
+          const stateSignature = JSON.stringify(nextState);
+          lastRealtimeStateRef.current = stateSignature;
+          dispatch({ type: "session/replace", state: nextState });
+        },
+      )
+      .subscribe((status) => {
+        console.log("Sprint postgres realtime status", status);
+      });
+
+    return () => {
+      if (!supabase) return;
+
+      void supabase.removeChannel(broadcastChannel);
+      void supabase.removeChannel(postgresChannel);
+    };
+  }, [activeSessionId]);
+
+  // HOOKS MOVED ABOVE LOADING GUARD
   const [hmwOpen, setHmwOpen] = useState(false);
-  const [helperOpen, setHelperOpen] = useState(false);
   const currentDay = useMemo(() => sprintDays.find((day) => day.id === page), [page]);
+
+  if (!hasLoadedSavedSession) {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-slate-50 px-6">
+        <div className="rounded-3xl border border-slate-200 bg-white p-8 text-center shadow-xl">
+          <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-[#070617] text-sm font-black text-white">
+            DS
+          </div>
+          <h1 className="mt-4 text-xl font-black text-slate-950">Loading sprint session…</h1>
+          <p className="mt-2 text-sm text-slate-500">Restoring your saved sprint workspace.</p>
+        </div>
+      </main>
+    );
+  }
 
   const onNavigate = (nextPage: Page) => {
     setPage(nextPage);
@@ -2750,29 +8278,61 @@ export default function DesignSprintFacilitatorApp() {
         Skip to content
       </a>
 
-      <Header page={page} onNavigate={onNavigate} currentDay={state.currentDay} sprintName={state.sprintName} />
+      {page !== "participant" ? 
+      <Header
+        page={page}
+        onNavigate={onNavigate}
+        currentDay={state.currentDay}
+        sprintName={state.sprintName}
+        facilitatorMode={facilitatorMode}
+        setFacilitatorMode={setFacilitatorMode}
+      /> : null}
 
       <div id="main">
         {page === "dashboard" ? (
-          <Dashboard state={state} dispatch={dispatch} onNavigate={onNavigate} openHmw={() => setHmwOpen(true)} />
+          <Dashboard
+            state={state}
+            dispatch={dispatch}
+            onNavigate={onNavigate}
+            openHmw={() => setHmwOpen(true)}
+            facilitatorMode={facilitatorMode}
+          />
         ) : null}
+        {page === "participant" ? <ParticipantView state={state} /> : null}
 
         {currentDay ? (
-          <DayPage day={currentDay} state={state} dispatch={dispatch} onNavigate={onNavigate} openHmw={() => setHmwOpen(true)} />
+          <DayPage
+            day={currentDay}
+            state={state}
+            dispatch={dispatch}
+            onNavigate={onNavigate}
+            openHmw={() => setHmwOpen(true)}
+            facilitatorMode={facilitatorMode}
+          />
         ) : null}
 
-        {page === "timer" ? <TimerPage setPage={onNavigate} /> : null}
+        {page === "timer" ? <TimerPage state={state} dispatch={dispatch} onNavigate={onNavigate} facilitatorMode={facilitatorMode} /> : null}
         {page === "resources" ? <ResourcesPage setPage={onNavigate} /> : null}
         {page === "report" ? <ReportPage state={state} onNavigate={onNavigate} /> : null}
+        {page === "repository" && facilitatorMode ? (
+          <RepositoryPage
+            activeSessionId={activeSessionId}
+            currentState={state}
+            dispatch={dispatch}
+            setActiveSessionId={setActiveSessionId}
+            onNavigate={onNavigate}
+          />
+        ) : null}
       </div>
 
-      <footer className="mt-16 border-t bg-slate-50 py-8 text-center text-sm text-slate-500">
-        <p>Design Sprint Facilitator - Your complete guide to running successful 4-day design sprints</p>
-        <p className="mt-2">Built for design teams, product managers, and innovation facilitators</p>
-      </footer>
+      {page !== "participant" ? (
+        <footer className="mt-16 border-t bg-slate-50 py-8 text-center text-sm text-slate-500">
+          <p>Design Sprint Facilitator - Your complete guide to running successful 4-day design sprints</p>
+          <p className="mt-2">Built for design teams, product managers, and innovation facilitators</p>
+        </footer>
+      ) : null}
 
-      <HelperPanel open={helperOpen} setOpen={setHelperOpen} />
-      <HmwModal open={hmwOpen} onClose={() => setHmwOpen(false)} state={state} dispatch={dispatch} />
+      {page !== "participant" ? <HmwModal open={hmwOpen} onClose={() => setHmwOpen(false)} state={state} dispatch={dispatch} /> : null}
     </div>
   );
 }
@@ -2795,3 +8355,4 @@ function NoteArtefactPreview({ artefact }: { artefact: Artefact }) {
     </div>
   );
 }
+    
