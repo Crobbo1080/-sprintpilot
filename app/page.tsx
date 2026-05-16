@@ -2734,6 +2734,9 @@ function Header({
   facilitatorMode: boolean;
   setFacilitatorMode: React.Dispatch<React.SetStateAction<boolean>>;
 }) {
+  const isSharedReportView = typeof window !== "undefined" && window.location.pathname.startsWith("/report/");
+
+  if (isSharedReportView) return null;
   const items = [
     { id: "dashboard" as const, label: "Dashboard", icon: Home },
     ...(facilitatorMode
@@ -7078,6 +7081,8 @@ function ReportPage({ state, onNavigate }: { state: AppState; onNavigate: (page:
   const [expandedSections, setExpandedSections] = useState<string[]>([]);
   const [openTestingSessions, setOpenTestingSessions] = useState<Record<string, boolean>>({});
   const [isPreparingPdfExport, setIsPreparingPdfExport] = useState(false);
+  const [isShareMenuOpen, setIsShareMenuOpen] = useState(false);
+  const [shareStatusMessage, setShareStatusMessage] = useState("");
 
   const allKeys = useMemo(() => {
     const keys: string[] = [];
@@ -7086,6 +7091,19 @@ function ReportPage({ state, onNavigate }: { state: AppState; onNavigate: (page:
     }
     return keys;
   }, []);
+  const isSharedReportView =
+  typeof window !== "undefined" &&
+  window.location.pathname.startsWith("/report/");
+  
+  const activeReportSessionId =
+  typeof window !== "undefined"
+    ? window.localStorage.getItem("sprintpilot.activeSessionId.v1")
+    : null;
+
+  const shareReportUrl =
+  activeReportSessionId && typeof window !== "undefined"
+    ? `${window.location.origin}/report/${activeReportSessionId}`
+    : "";
 
   const progress = useMemo(() => {
     const progressed = allKeys.filter(
@@ -7323,23 +7341,113 @@ function ReportPage({ state, onNavigate }: { state: AppState; onNavigate: (page:
         {isPreparingPdfExport ? "Preparing the full sprint report for PDF export. Collapsed report sections are being expanded." : ""}
       </div>
 
+      {!isSharedReportView ? (
+
       <Button variant="secondary" onClick={() => onNavigate("dashboard")} data-print-hidden="true">
+
         <ArrowLeft className="h-4 w-4" /> Back
+
       </Button>
+
+      ) : null}
 
       <div className="mt-6 flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
         <div>
           <h1 className="text-3xl font-black">Sprint Report</h1>
           <p className="mt-1 text-slate-500">Generated from your captured sprint setup, activity progress, HMWs, and notes.</p>
         </div>
-        <Button
-          onClick={handleExportReportPdf}
-          aria-label="Export the full sprint report as a PDF-ready print document"
+
+        <div className="relative flex flex-wrap items-center gap-2" data-print-hidden="true">
+          <Button
+            variant="secondary"
+            onClick={() => setIsShareMenuOpen((current) => !current)}
+            aria-label="Open report sharing options"
+            aria-expanded={isShareMenuOpen}
+          >
+            <Send className="h-4 w-4" /> Share report
+          </Button>
+
+          {isShareMenuOpen ? (
+            <div className="absolute right-0 top-12 z-50 w-80 rounded-3xl border border-slate-200 bg-white p-3 shadow-2xl shadow-slate-200/80">
+              <div className="px-2 pb-2">
+                <p className="text-xs font-black uppercase tracking-wide text-slate-500">Share options</p>
+                <p className="mt-1 text-xs leading-5 text-slate-500">
+                  Anyone with this link can open the sprint report.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={async () => {
+                  if (!shareReportUrl) return;
+
+                  try {
+                    await navigator.clipboard.writeText(shareReportUrl);
+                    setShareStatusMessage("Report link copied to clipboard.");
+                    setIsShareMenuOpen(false);
+                  } catch {
+                    setShareStatusMessage("Copy failed. Please copy the link manually.");
+                  }
+                }}
+                className="flex w-full items-center gap-3 rounded-2xl px-3 py-3 text-left text-sm font-bold text-slate-700 transition hover:bg-slate-50"
+              >
+                <Copy className="h-4 w-4 text-purple-600" /> Copy link
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  if (!shareReportUrl) return;
+                  window.open(shareReportUrl, "_blank", "noopener,noreferrer");
+                  setIsShareMenuOpen(false);
+                }}
+                className="flex w-full items-center gap-3 rounded-2xl px-3 py-3 text-left text-sm font-bold text-slate-700 transition hover:bg-slate-50"
+              >
+                <Eye className="h-4 w-4 text-purple-600" /> Open shared report
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  if (!shareReportUrl) return;
+
+                  const subject = encodeURIComponent(`Sprintpilot report: ${state.sprintName || "Design Sprint"}`);
+                  const body = encodeURIComponent(`Here is the Sprintpilot report link:\n\n${shareReportUrl}`);
+
+                  window.location.href = `mailto:?subject=${subject}&body=${body}`;
+                  setIsShareMenuOpen(false);
+                }}
+                className="flex w-full items-center gap-3 rounded-2xl px-3 py-3 text-left text-sm font-bold text-slate-700 transition hover:bg-slate-50"
+              >
+                <Send className="h-4 w-4 text-purple-600" /> Share link by email
+              </button>
+
+              {shareReportUrl ? (
+                <div className="mt-3 rounded-2xl bg-slate-50 p-3 text-xs leading-5 text-slate-500 break-all">
+                  {shareReportUrl}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+
+          <Button
+            onClick={handleExportReportPdf}
+            aria-label="Export the full sprint report as a PDF-ready print document"
+          >
+            <Download className="h-4 w-4" /> {isPreparingPdfExport ? "Preparing PDF…" : "Export report"}
+          </Button>
+        </div>
+      </div>
+
+      {shareStatusMessage ? (
+        <div
+          className="mt-4 rounded-2xl border border-purple-100 bg-purple-50 px-4 py-3 text-sm font-bold text-purple-900"
+          role="status"
           data-print-hidden="true"
         >
-          <Download className="h-4 w-4" /> {isPreparingPdfExport ? "Preparing PDF…" : "Export report"}
-        </Button>
-      </div>
+          {shareStatusMessage}
+        </div>
+      ) : null}
 
       <div className="mt-6 grid gap-4 lg:grid-cols-3">
         <Panel className="p-6 lg:col-span-2 print:break-inside-avoid">
@@ -8102,7 +8210,15 @@ function ReportPage({ state, onNavigate }: { state: AppState; onNavigate: (page:
 }
 
 export default function DesignSprintFacilitatorApp() {
-  const [page, setPage] = useState<Page>("dashboard");
+  const [page, setPage] = useState<Page>(() => {
+    if (typeof window === "undefined") return "dashboard";
+  
+    const params = new URLSearchParams(window.location.search);
+    const hasSharedReportUrl =
+      params.has("reportSessionId") || /^\/report\/[^/]+$/.test(window.location.pathname);
+  
+    return hasSharedReportUrl ? "report" : "dashboard";
+  });
   const [state, dispatch] = useReducer(reducer, initialState);
   const lastRealtimeStateRef = useRef<string | null>(null);
   const lastLocalSaveAtRef = useRef(0);
@@ -8115,12 +8231,19 @@ export default function DesignSprintFacilitatorApp() {
   }, [facilitatorMode]);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [hasLoadedSavedSession, setHasLoadedSavedSession] = useState(false);
+  const isSharedReportView =
+  typeof window !== "undefined" &&
+  window.location.pathname.startsWith("/report/");
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    const reportSessionId = params.get("reportSessionId");
+    const queryReportSessionId = params.get("reportSessionId");
+    const pathReportMatch = window.location.pathname.match(/^\/report\/([^/]+)$/);
+    const reportSessionId = queryReportSessionId ?? pathReportMatch?.[1] ?? null;
+
     if (!reportSessionId) return;
-    const sharedReportSessionId = reportSessionId;
+
+    const sharedReportSessionId = decodeURIComponent(reportSessionId);
   
     let isMounted = true;
   
@@ -8441,4 +8564,3 @@ function NoteArtefactPreview({ artefact }: { artefact: Artefact }) {
     </div>
   );
 }
-    
