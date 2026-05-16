@@ -1938,7 +1938,7 @@ type CloudSprintSessionRow = {
   id: string;
   name: string;
   status: SprintSessionStatus;
-  state: AppState;
+  session_data: AppState;
   created_at: string;
   updated_at: string;
 };
@@ -1947,11 +1947,11 @@ function cloudRowToSprintSession(row: CloudSprintSessionRow): SprintSession {
   return {
     id: row.id,
     cloudId: row.id,
-    name: row.name || row.state?.sprintName || "Untitled sprint",
+    name: row.name || row.session_data?.sprintName || "Untitled sprint",
     status: row.status ?? "draft",
     createdAt: new Date(row.created_at).getTime(),
     updatedAt: new Date(row.updated_at).getTime(),
-    state: normaliseAppState(row.state),
+    state: normaliseAppState(row.session_data),
   };
 }
 
@@ -1960,7 +1960,7 @@ async function fetchCloudSessions(): Promise<SprintSession[]> {
 
   const { data, error } = await supabase
     .from("sprint_sessions")
-    .select("id,name,status,state,created_at,updated_at")
+    .select("id,name,status,session_data,created_at,updated_at")
     .order("updated_at", { ascending: false });
 
   if (error) {
@@ -1977,12 +1977,13 @@ async function createCloudSession(state: AppState, status: SprintSessionStatus =
   const { data, error } = await supabase
     .from("sprint_sessions")
     .insert({
+      id: createSessionId(),
       name: state.sprintName || "Untitled sprint",
       status,
-      state,
+      session_data: state,
       updated_at: new Date().toISOString(),
     })
-    .select("id,name,status,state,created_at,updated_at")
+    .select("id,name,status,session_data,created_at,updated_at")
     .single();
 
   if (error) {
@@ -1996,9 +1997,9 @@ async function createCloudSession(state: AppState, status: SprintSessionStatus =
 async function updateCloudSession(sessionId: string, state: AppState, status?: SprintSessionStatus): Promise<void> {
   if (!supabase) return;
 
-  const payload: { name: string; state: AppState; updated_at: string; status?: SprintSessionStatus } = {
+  const payload: { name: string; session_data: AppState; updated_at: string; status?: SprintSessionStatus } = {
     name: state.sprintName || "Untitled sprint",
-    state,
+    session_data: state,
     updated_at: new Date().toISOString(),
   };
 
@@ -2007,6 +2008,39 @@ async function updateCloudSession(sessionId: string, state: AppState, status?: S
   const { error } = await supabase.from("sprint_sessions").update(payload).eq("id", sessionId);
 
   if (error) console.error("Failed to update cloud sprint session", error);
+}
+
+async function syncLocalSessionsToCloud(localSessions: SprintSession[]): Promise<SprintSession[]> {
+  if (!supabase) return localSessions;
+
+  const syncedSessions = await Promise.all(
+    localSessions.map(async (session) => {
+      const cloudId = session.cloudId ?? session.id;
+      const now = new Date(session.updatedAt || Date.now()).toISOString();
+
+      const { data, error } = await supabase!
+        .from("sprint_sessions")
+        .upsert({
+          id: cloudId,
+          name: session.name || session.state.sprintName || "Untitled sprint",
+          status: session.status ?? "live",
+          session_data: session.state,
+          updated_at: now,
+        })
+        .select("id,name,status,session_data,created_at,updated_at")
+        .single();
+
+      if (error || !data) {
+        console.error("Failed to sync local sprint session to cloud", error);
+        return session;
+      }
+
+      return cloudRowToSprintSession(data as CloudSprintSessionRow);
+    }),
+  );
+
+  writeStoredSessions(syncedSessions);
+  return syncedSessions;
 }
 
 function createSessionId() {
@@ -2803,15 +2837,16 @@ function RepositoryPage({
   const [sessions, setSessions] = useState<SprintSession[]>([]);
 
   const refreshSessions = async () => {
+    const localSessions = readStoredSessions();
+    const syncedLocalSessions = localSessions.length > 0 ? await syncLocalSessionsToCloud(localSessions) : [];
     const cloudSessions = await fetchCloudSessions();
-  
-    if (cloudSessions.length > 0) {
-      setSessions(cloudSessions);
-      writeStoredSessions(cloudSessions);
-      return;
-    }
-  
-    setSessions(readStoredSessions().sort((a, b) => b.updatedAt - a.updatedAt));
+    const mergedSessions = [...cloudSessions, ...syncedLocalSessions].filter(
+      (session, index, all) => all.findIndex((item) => item.id === session.id) === index,
+    );
+
+    const sortedSessions = mergedSessions.sort((a, b) => b.updatedAt - a.updatedAt);
+    setSessions(sortedSessions);
+    writeStoredSessions(sortedSessions);
   };
 
   useEffect(() => {
@@ -5139,7 +5174,7 @@ async function loadLatestLiveCloudSession() {
     return null;
   }
 
-  return data ? cloudRowToSprintSession(data as CloudSprintSessionRow) : null;
+  return data ? cloudRowToSprintSession(data as unknown as CloudSprintSessionRow) : null;
 }
 
 function getNoteGroupDescription(noteKind: Artefact["noteKind"]) {
@@ -8209,8 +8244,8 @@ export default function DesignSprintFacilitatorApp() {
           table: "sprint_sessions",
         },
         (payload) => {
-          const updated = payload.new as CloudSprintSessionRow;
-          if (!updated?.id || !updated?.state) return;
+          const updated = payload.new as unknown as CloudSprintSessionRow;
+          if (!updated?.id || !updated?.session_data) return;
 
           const currentActiveSessionId = activeSessionIdRef.current;
           const currentStoredSessions = readStoredSessions();
@@ -8228,7 +8263,7 @@ export default function DesignSprintFacilitatorApp() {
           const incomingUpdatedAt = updated.updated_at ? new Date(updated.updated_at).getTime() : 0;
           if (incomingUpdatedAt && incomingUpdatedAt <= lastLocalSaveAtRef.current) return;
 
-          const nextState = normaliseAppState(updated.state);
+          const nextState = normaliseAppState(updated.session_data);
           const stateSignature = JSON.stringify(nextState);
           lastRealtimeStateRef.current = stateSignature;
           dispatch({ type: "session/replace", state: nextState });
