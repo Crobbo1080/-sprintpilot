@@ -1938,20 +1938,23 @@ type CloudSprintSessionRow = {
   id: string;
   name: string;
   status: SprintSessionStatus;
-  session_data: AppState;
+  session_data?: AppState | null;
+  state?: AppState | null;
   created_at: string;
   updated_at: string;
 };
 
 function cloudRowToSprintSession(row: CloudSprintSessionRow): SprintSession {
+  const sourceState = row.session_data ?? row.state ?? initialState;
+
   return {
     id: row.id,
     cloudId: row.id,
-    name: row.name || row.session_data?.sprintName || "Untitled sprint",
+    name: row.name || sourceState.sprintName || "Untitled sprint",
     status: row.status ?? "draft",
     createdAt: new Date(row.created_at).getTime(),
     updatedAt: new Date(row.updated_at).getTime(),
-    state: normaliseAppState(row.session_data),
+    state: normaliseAppState(sourceState),
   };
 }
 
@@ -1960,7 +1963,7 @@ async function fetchCloudSessions(): Promise<SprintSession[]> {
 
   const { data, error } = await supabase
     .from("sprint_sessions")
-    .select("id,name,status,session_data,created_at,updated_at")
+    .select("id,name,status,state,session_data,created_at,updated_at")
     .order("updated_at", { ascending: false });
 
   if (error) {
@@ -1969,6 +1972,23 @@ async function fetchCloudSessions(): Promise<SprintSession[]> {
   }
 
   return ((data ?? []) as CloudSprintSessionRow[]).map(cloudRowToSprintSession);
+}
+
+async function fetchCloudSessionById(sessionId: string): Promise<SprintSession | null> {
+  if (!supabase) return null;
+
+  const { data, error } = await supabase
+    .from("sprint_sessions")
+    .select("id,name,status,state,session_data,created_at,updated_at")
+    .eq("id", sessionId)
+    .single();
+
+  if (error || !data) {
+    console.error("Failed to fetch shared report sprint session", error);
+    return null;
+  }
+
+  return cloudRowToSprintSession(data as CloudSprintSessionRow);
 }
 
 async function createCloudSession(state: AppState, status: SprintSessionStatus = "draft"): Promise<SprintSession | null> {
@@ -8095,6 +8115,37 @@ export default function DesignSprintFacilitatorApp() {
   }, [facilitatorMode]);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [hasLoadedSavedSession, setHasLoadedSavedSession] = useState(false);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const reportSessionId = params.get("reportSessionId");
+    if (!reportSessionId) return;
+    const sharedReportSessionId = reportSessionId;
+  
+    let isMounted = true;
+  
+    async function loadSharedReport() {
+      const cloudSession = await fetchCloudSessionById(sharedReportSessionId);
+      if (!isMounted || !cloudSession) return;
+  
+      const existingSessions = readStoredSessions();
+      const nextSessions = [
+        cloudSession,
+        ...existingSessions.filter((session) => session.id !== cloudSession.id),
+      ];
+  
+      writeStoredSessions(nextSessions);
+      setActiveSessionId(cloudSession.id);
+      dispatch({ type: "session/replace", state: cloudSession.state });
+      setPage("report");
+    }
+  
+    void loadSharedReport();
+  
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   useEffect(() => {
     if (hasLoadedSavedSession) return;
