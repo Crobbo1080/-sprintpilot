@@ -7671,16 +7671,18 @@ function ReportPage({ state, onNavigate }: { state: AppState; onNavigate: (page:
 
     const params = new URLSearchParams(window.location.search);
     const queryReportSessionId = params.get("reportSessionId");
-    const pathReportMatch = window.location.pathname.match(/^\/report\/([^/]+)(?:\/print)?$/);
+    const pathReportMatch = window.location.pathname.match(/^\/report\/([^/]+)(?:\/print)?\/?$/);
     const pathReportSessionId = pathReportMatch?.[1] ? decodeURIComponent(pathReportMatch[1]) : null;
-    const reportSessionId = activeReportSessionId || queryReportSessionId || pathReportSessionId;
+    const storedSessionId = window.localStorage.getItem("sprintpilot.activeSessionId.v1");
+    const reportSessionId = pathReportSessionId || queryReportSessionId || activeReportSessionId || storedSessionId;
 
     if (!reportSessionId) {
-      window.print();
+      window.alert("Unable to find a report session ID for PDF export.");
       return;
     }
 
-    window.open(`/report/${reportSessionId}/print`, "_blank", "noopener,noreferrer");
+    const printUrl = new URL(`/report/${reportSessionId}/print`, window.location.origin);
+    window.open(printUrl.toString(), "_blank", "noopener,noreferrer");
   };
 
   const executiveSummary = useMemo(() => buildExecutiveSummary(state), [state]);
