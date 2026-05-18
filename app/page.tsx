@@ -7667,35 +7667,12 @@ function ReportPage({ state, onNavigate }: { state: AppState; onNavigate: (page:
       : 0;
 
   const handleExportReportPdf = () => {
-    setIsPreparingPdfExport(true);
-
-    setOpenJourneyDays(
-      sprintDays.reduce<Partial<Record<DayId, boolean>>>((acc, day) => {
-        acc[day.id] = true;
-        return acc;
-      }, {}),
-    );
-
-    setOpenTestingSessions(
-      testingSessions.reduce<Record<string, boolean>>((acc, session) => {
-        acc[session.key] = true;
-        return acc;
-      }, {}),
-    );
-
-    setExpandedSections((current) =>
-      Array.from(
-        new Set([
-          ...current,
-          ...recommendations.slice(0, 4).map((artefact) => `next-step-${artefact.id}`),
-        ]),
-      ),
-    );
-
-    window.setTimeout(() => {
+    if (!activeReportSessionId) {
       window.print();
-      window.setTimeout(() => setIsPreparingPdfExport(false), 800);
-    }, 350);
+      return;
+    }
+
+    window.open(`/report/${activeReportSessionId}/print`, "_blank", "noopener,noreferrer");
   };
 
   const executiveSummary = useMemo(() => buildExecutiveSummary(state), [state]);
