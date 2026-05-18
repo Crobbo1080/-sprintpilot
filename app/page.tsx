@@ -7667,12 +7667,20 @@ function ReportPage({ state, onNavigate }: { state: AppState; onNavigate: (page:
       : 0;
 
   const handleExportReportPdf = () => {
-    if (!activeReportSessionId) {
+    if (typeof window === "undefined") return;
+
+    const params = new URLSearchParams(window.location.search);
+    const queryReportSessionId = params.get("reportSessionId");
+    const pathReportMatch = window.location.pathname.match(/^\/report\/([^/]+)(?:\/print)?$/);
+    const pathReportSessionId = pathReportMatch?.[1] ? decodeURIComponent(pathReportMatch[1]) : null;
+    const reportSessionId = activeReportSessionId || queryReportSessionId || pathReportSessionId;
+
+    if (!reportSessionId) {
       window.print();
       return;
     }
 
-    window.open(`/report/${activeReportSessionId}/print`, "_blank", "noopener,noreferrer");
+    window.open(`/report/${reportSessionId}/print`, "_blank", "noopener,noreferrer");
   };
 
   const executiveSummary = useMemo(() => buildExecutiveSummary(state), [state]);
