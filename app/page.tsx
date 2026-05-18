@@ -7174,15 +7174,19 @@ function PrintReport({ state }: { state: AppState }) {
       const cleanPrintInsightTitle = (text: string) =>
         text.replace(/^\s*\d+\.\s*/, "");
 
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-
-    const params = new URLSearchParams(window.location.search);
-    if (params.get("printReport") !== "true") return;
-
-    const timeout = window.setTimeout(() => window.print(), 700);
-    return () => window.clearTimeout(timeout);
-  }, []);
+      useEffect(() => {
+        if (typeof window === "undefined") return;
+      
+        const isPrintRoute = /^\/report\/[^/]+\/print$/.test(window.location.pathname);
+      
+        if (!isPrintRoute) return;
+      
+        const timeout = window.setTimeout(() => {
+          window.print();
+        }, 700);
+      
+        return () => window.clearTimeout(timeout);
+      }, []);
 
   return (
     <main className="bg-white px-8 py-10 text-slate-950 print:px-0 print:py-0">
