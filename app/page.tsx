@@ -7666,24 +7666,19 @@ function ReportPage({ state, onNavigate }: { state: AppState; onNavigate: (page:
         ) / 10
       : 0;
 
-  const handleExportReportPdf = () => {
-    if (typeof window === "undefined") return;
-
-    const params = new URLSearchParams(window.location.search);
-    const queryReportSessionId = params.get("reportSessionId");
-    const pathReportMatch = window.location.pathname.match(/^\/report\/([^/]+)(?:\/print)?\/?$/);
-    const pathReportSessionId = pathReportMatch?.[1] ? decodeURIComponent(pathReportMatch[1]) : null;
-    const storedSessionId = window.localStorage.getItem("sprintpilot.activeSessionId.v1");
-    const reportSessionId = pathReportSessionId || queryReportSessionId || activeReportSessionId || storedSessionId;
-
-    if (!reportSessionId) {
-      window.alert("Unable to find a report session ID for PDF export.");
-      return;
-    }
-
-    const printUrl = new URL(`/report/${reportSessionId}/print`, window.location.origin);
-    window.open(printUrl.toString(), "_blank", "noopener,noreferrer");
-  };
+      const handleExportReportPdf = () => {
+        if (typeof window === "undefined") return;
+      
+        const currentPath = window.location.pathname.replace(/\/$/, "");
+        const reportPathMatch = currentPath.match(/^\/report\/([^/]+)$/);
+      
+        if (reportPathMatch?.[1]) {
+          window.location.href = `${currentPath}/print`;
+          return;
+        }
+      
+        window.alert("Unable to find a report session ID for PDF export.");
+      };
 
   const executiveSummary = useMemo(() => buildExecutiveSummary(state), [state]);
   
