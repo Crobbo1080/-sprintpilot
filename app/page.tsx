@@ -5300,14 +5300,21 @@ function getParticipantWaitingMessage(state: AppState) {
 }
 
 function InlineFormattedText({ text }: { text: string }) {
-  const parts = text.split(/(\*\*[^*]+\*\*)/g);
+  const cleanedText = text
+    .replace(/^>\s*/gm, "")
+    .replace(/\n/g, " ")
+    .trim();
+
+  const parts = cleanedText.split(/(\*\*.*?\*\*)/g);
 
   return (
     <>
       {parts.map((part, index) => {
-        if (part.startsWith("**") && part.endsWith("**")) {
+        const isBold = part.startsWith("**") && part.endsWith("**");
+
+        if (isBold) {
           return (
-            <strong key={index} className="font-black text-slate-900">
+            <strong key={index} className="font-semibold text-slate-950">
               {part.slice(2, -2)}
             </strong>
           );
@@ -7076,7 +7083,436 @@ function ReportArtefactsSection({
   );
 }
 
+function PrintReport({ state }: { state: AppState }) {
+  const sprintJourney = useMemo(() => buildSprintJourney(state), [state]);
+  const executiveSummary = useMemo(() => buildExecutiveSummary(state), [state]);
+  const recommendations = useMemo(() => {
+    const testingRecommendations = synthesiseTestingRecommendations(state.testingSessions);
+    return testingRecommendations.length > 0 ? testingRecommendations : extractTopRecommendations(state.artefacts);
+  }, [state.artefacts, state.testingSessions]);
+
+  const allArtefacts = useMemo(() => Object.values(state.artefacts).flat(), [state.artefacts]);
+  const photoArtefacts = useMemo(
+    () => allArtefacts.filter((artefact) => artefact.type === "photo"),
+    [allArtefacts],
+  );
+  const noteArtefacts = useMemo(
+    () => allArtefacts.filter((artefact) => artefact.type === "note"),
+    [allArtefacts],
+  );
+
+  const testingSessions = Object.entries(state.testingSessions ?? {})
+    .map(([key, session]) => {
+      const activity = getDayAndActivityFromKey(key);
+      const participantNumber = key.match(/testing-(\d+)/)?.[1];
+
+      return {
+        key,
+        title: activity?.activity.title ?? "Testing Session",
+        participant: session.participant?.trim() || `Participant ${participantNumber ?? ""}`.trim(),
+        role: session.role ?? "",
+        clarity: session.clarityScore ?? 0,
+        usefulness: session.usefulnessScore ?? 0,
+        confidence: session.confidenceScore ?? 0,
+        completion: session.taskCompletionScore ?? 0,
+        quote: session.keyQuote ?? "",
+        behaviour: session.observedBehaviour ?? "",
+        friction: session.frictionPoint ?? "",
+        positive: session.positiveSignal ?? "",
+        recommendation: session.recommendation ?? "",
+      };
+    })
+    .filter(
+      (session) =>
+        session.quote ||
+        session.behaviour ||
+        session.friction ||
+        session.positive ||
+        session.recommendation ||
+        session.clarity > 0 ||
+        session.usefulness > 0 ||
+        session.confidence > 0 ||
+        session.completion > 0,
+    );
+
+  const averageTestingScore =
+    testingSessions.length > 0
+      ? Math.round(
+          (testingSessions.reduce(
+            (total, session) =>
+              total + session.clarity + session.usefulness + session.confidence + session.completion,
+            0,
+          ) /
+            (testingSessions.length * 4)) *
+            10,
+        ) / 10
+      : 0;
+
+      const summariseForPrint = (text: string, maxLength = 180) => {
+        const cleanBlockquoteMarkers = (value: string) =>
+          value
+            .replace(/^>\s*/gm, "")
+            .replace(/\s+>\s+/g, " — ")
+            .replace(/\s+/g, " ")
+            .trim();
+      
+        const closeUnbalancedBoldMarkers = (value: string) => {
+          const markerCount = (value.match(/\*\*/g) ?? []).length;
+          return markerCount % 2 === 0 ? value : `${value}**`;
+        };
+      
+        const cleaned = cleanBlockquoteMarkers(text);
+      
+        const summary =
+          cleaned.length <= maxLength
+            ? cleaned
+            : `${cleaned.slice(0, maxLength).replace(/[\s,.;:!?-]+$/, "")}…`;
+      
+        return closeUnbalancedBoldMarkers(summary);
+      };
+      
+      const cleanPrintInsightTitle = (text: string) =>
+        text.replace(/^\s*\d+\.\s*/, "");
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("printReport") !== "true") return;
+
+    const timeout = window.setTimeout(() => window.print(), 700);
+    return () => window.clearTimeout(timeout);
+  }, []);
+
+  return (
+    <main className="bg-white px-8 py-10 text-slate-950 print:px-0 print:py-0">
+      <div
+        className="mx-auto mb-6 flex max-w-[920px] items-center justify-between rounded-2xl border border-slate-200 bg-slate-50 px-5 py-4 shadow-sm print:hidden"
+        data-print-hidden="true"
+      >
+        <div>
+          <p className="text-sm font-black text-slate-900">Print report preview</p>
+          <p className="mt-1 text-xs text-slate-500">Review the report, then print or save as PDF.</p>
+        </div>
+
+        <Button onClick={() => window.print()} aria-label="Print or save this report as a PDF">
+          <Download className="h-4 w-4" /> Print / Save PDF
+        </Button>
+      </div>
+      <style jsx global>{`
+        @media print {
+          @page {
+            size: A4;
+            margin: 14mm;
+          }
+
+          html,
+          body {
+            background: #ffffff !important;
+            color: #0f172a !important;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+          }
+
+          button,
+          [data-print-hidden="true"] {
+            display: none !important;
+          }
+
+          .print-page-break {
+            break-before: page;
+            page-break-before: always;
+            padding-top: 8mm;
+          }
+
+          .print-avoid-break {
+            break-inside: avoid;
+            page-break-inside: avoid;
+          }
+
+          .print-section {
+            padding-top: 8mm;
+          }
+
+          .print-section-label {
+            margin-bottom: 0.35rem;
+          }
+        }
+      `}</style>
+
+      <div className="mx-auto max-w-[920px] space-y-10 print:max-w-none print:space-y-8">
+        <section className="rounded-[2rem] border border-slate-200 bg-white p-10 text-slate-950 print:rounded-none print:border-0 print:p-0">
+          <p className="text-sm font-black uppercase tracking-[0.35em] text-purple-700 print:text-slate-500">Sprintpilot report</p>
+          <h1 className="mt-8 max-w-3xl text-5xl font-black leading-tight print:text-4xl">
+            {state.sprintName || "Design Sprint Report"}
+          </h1>
+          <p className="mt-6 max-w-3xl text-lg leading-8 text-slate-700 print:text-base">
+            A structured report summarising the sprint challenge, evidence, user testing outcomes, and recommended next steps.
+          </p>
+
+          <div className="mt-12 grid gap-4 md:grid-cols-3 print:grid-cols-3">
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5 print:bg-white">
+              <div className="text-3xl font-black print:text-2xl">{state.completed.length}</div>
+              <div className="mt-1 text-xs font-black uppercase tracking-wide text-slate-500">Completed activities</div>
+            </div>
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5 print:bg-white">
+              <div className="text-3xl font-black print:text-2xl">{allArtefacts.length}</div>
+              <div className="mt-1 text-xs font-black uppercase tracking-wide text-slate-500">Evidence items</div>
+            </div>
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5 print:bg-white">
+              <div className="text-3xl font-black print:text-2xl">{recommendations.length}</div>
+              <div className="mt-1 text-xs font-black uppercase tracking-wide text-slate-500">Recommended actions</div>
+            </div>
+          </div>
+
+          <div className="mt-12 grid gap-5 text-sm leading-7 md:grid-cols-2 print:grid-cols-2">
+            <div>
+              <p className="text-xs font-black uppercase tracking-wide text-slate-500">Challenge</p>
+              <p className="mt-2 text-slate-700">{state.challenge || "No challenge statement captured."}</p>
+            </div>
+            <div>
+              <p className="text-xs font-black uppercase tracking-wide text-slate-500">Desired outcome</p>
+              <p className="mt-2 text-slate-700">{state.desiredOutcome || "No desired outcome captured."}</p>
+            </div>
+          </div>
+        </section>
+        <section className="print-section print-avoid-break">
+          <p className="print-section-label text-xs font-black uppercase tracking-[0.3em] text-slate-500">Executive summary</p>
+          <h2 className="mt-2 text-3xl font-black tracking-tight">Sprint outcomes and strategic direction</h2>
+
+          <div className="mt-5">
+            <div className="space-y-4 text-[15px] leading-8 text-slate-700 print:text-[10.5pt] print:leading-7">
+              <p>
+                This design sprint explored <span className="font-black text-slate-950">{state.challenge || "the selected challenge"}</span> through a structured process of problem framing, evidence capture, concept development, prototyping, and user validation.
+              </p>
+
+              <p>
+                Design sprints are used to help teams make faster, better-informed decisions before committing significant time, budget, or operational capacity to building a solution. By compressing discovery, ideation, prototyping, and testing into a focused sprint cycle, teams can challenge assumptions early, expose risk quickly, and avoid investing heavily in ideas that may not meet user needs.
+              </p>
+
+              <p>
+                In this sprint, the team generated <span className="font-black text-slate-950">{allArtefacts.length}</span> evidence items across <span className="font-black text-slate-950">{state.completed.length}</span> completed activities. This created a clearer evidence base for deciding what should be refined, prioritised, paused, or progressed next.
+              </p>
+
+              <p>
+                The sprint also supported a “fail fast” approach: rather than waiting until a fully built product or service is launched, the team tested ideas while they were still low-cost and adaptable. This helps reduce the likelihood of building the wrong thing, strengthens stakeholder confidence, and enables delivery teams to reach useful outcomes more quickly.
+              </p>
+
+              <p>
+                User testing provided a clear validation signal, with <span className="font-black text-slate-950">{testingSessions.length}</span> sessions completed and an average score of <span className="font-black text-slate-950">{averageTestingScore}/5</span>. The strongest learning centred on where the concept created confidence and value for users, alongside the friction points that should be addressed before wider rollout.
+              </p>
+
+              <p>
+                The recommended next steps focus on turning this evidence into practical iteration: improving clarity, reducing user friction, strengthening confidence in the experience, and preserving the elements that tested positively. This gives the team a more robust basis for decision-making before further investment or implementation.
+              </p>
+            </div>
+          </div>
+        </section>
+        <section className="print-page-break">
+          <p className="print-section-label text-xs font-black uppercase tracking-[0.3em] text-slate-500">Sprint journey</p>
+          <h2 className="mt-2 text-3xl font-black tracking-tight">How the sprint unfolded</h2>
+          <div className="mt-6 overflow-hidden rounded-2xl border border-slate-200">
+            <table className="w-full border-collapse text-left text-sm print:text-[10pt]">
+              <thead className="bg-slate-100 text-xs uppercase tracking-wide text-slate-600">
+                <tr>
+                  <th className="border-b border-slate-200 p-4">Day</th>
+                  <th className="border-b border-slate-200 p-4">Focus</th>
+                  <th className="border-b border-slate-200 p-4">Completed</th>
+                  <th className="border-b border-slate-200 p-4">Evidence</th>
+                </tr>
+              </thead>
+              <tbody>
+                {sprintJourney.map((entry) => (
+                  <tr key={entry.day.id} className="align-top">
+                    <td className="border-b border-slate-200 p-4 font-black">{entry.day.label}</td>
+                    <td className="border-b border-slate-200 p-4">
+                      <div className="font-black text-slate-900">{entry.day.guideLabel.replace(" Guide", "")}</div>
+                      <div className="mt-1 leading-6 text-slate-600">{entry.day.summary}</div>
+                    </td>
+                    <td className="border-b border-slate-200 p-4">{entry.completedActivities.length}</td>
+                    <td className="border-b border-slate-200 p-4">{entry.artefacts.length}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+        {testingSessions.length > 0 ? (
+          <section className="print-page-break">
+            <p className="print-section-label text-xs font-black uppercase tracking-[0.3em] text-slate-500">
+              User testing evidence
+            </p>
+
+            <div className="mt-2 flex flex-wrap items-end justify-between gap-4 border-b border-slate-200 pb-5">
+              <div>
+                <h2 className="text-3xl font-black tracking-tight">What we learned from users</h2>
+                <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
+                  This section provides a concise summary of the strongest signal from each user testing session. Full notes and supporting evidence remain available in the online report.
+                </p>
+              </div>
+
+              <div className="rounded-2xl border border-slate-200 bg-white px-5 py-3 text-right">
+                <div className="text-xs font-black uppercase tracking-wide text-slate-500">Average score</div>
+                <div className="text-3xl font-black text-slate-900">{averageTestingScore}/5</div>
+              </div>
+            </div>
+
+            <div className="mt-6 overflow-hidden rounded-2xl border border-slate-200 print:mt-5">
+              <table className="w-full border-collapse text-left text-sm print:text-[10pt]">
+                <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
+                  <tr>
+                    <th className="border-b border-slate-200 p-3">Session</th>
+                    <th className="border-b border-slate-200 p-3">Score</th>
+                    <th className="border-b border-slate-200 p-3">Representative quote</th>
+                    <th className="border-b border-slate-200 p-3">Key insight</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {testingSessions.map((session, index) => {
+                    const sessionAverage = Math.round(
+                      ((session.clarity + session.usefulness + session.confidence + session.completion) / 4) * 10,
+                    ) / 10;
+
+                    const strongestInsight =
+                      session.recommendation ||
+                      session.friction ||
+                      session.positive ||
+                      session.behaviour ||
+                      "No written insight summary was captured.";
+
+                      const keyInsightSummary = session.friction
+                      ? `The session highlighted friction around ${session.friction}`
+                      : session.positive
+                        ? `The strongest positive signal was that ${session.positive}`
+                        : session.recommendation
+                          ? `User feedback suggests the next iteration should focus on ${cleanPrintInsightTitle(session.recommendation)}`
+                          : session.behaviour || strongestInsight;
+
+                    return (
+                      <tr key={session.key} className="align-top print-avoid-break">
+                        <td className="border-b border-slate-200 p-3">
+                          <div className="font-black text-slate-950">Session {index + 1}</div>
+                          <div className="mt-1 text-xs leading-5 text-slate-500">
+                            {session.participant}
+                            {session.role ? ` — ${session.role}` : ""}
+                          </div>
+                        </td>
+                        <td className="border-b border-slate-200 p-3 font-black text-slate-950">{sessionAverage}/5</td>
+                        <td className="border-b border-slate-200 p-3 leading-6 text-slate-700">
+                          {(() => {
+                            const rawQuote = session.quote || "No direct quote captured.";
+                            const quoteParts = rawQuote.split(/\s*>\s*/);
+                            const quoteContext = quoteParts.length > 1 ? quoteParts[0]?.trim() : "";
+                            const quoteText = quoteParts.length > 1 ? quoteParts.slice(1).join(" ").trim() : rawQuote;
+
+                            return (
+                              <div className="space-y-2">
+                                {quoteContext ? (
+                                  <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                                    <InlineFormattedText text={summariseForPrint(quoteContext, 90)} />
+                                  </div>
+                                ) : null}
+
+                                <blockquote className="border-l-4 border-purple-300 bg-purple-50/40 py-2 pl-4 pr-3 italic text-slate-800">
+                                  <span className="text-purple-400">“</span>
+                                  <InlineFormattedText text={summariseForPrint(quoteText || "No direct quote captured.", 170)} />
+                                  <span className="text-purple-400">”</span>
+                                </blockquote>
+                              </div>
+                            );
+                          })()}
+                        </td>
+                        <td className="border-b border-slate-200 p-3 leading-6 text-slate-700">
+                          <InlineFormattedText text={keyInsightSummary} />
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        ) : null}
+        <section className="print-page-break">
+          <p className="print-section-label text-xs font-black uppercase tracking-[0.3em] text-slate-500">Recommended next steps</p>
+          <h2 className="mt-2 text-3xl font-black tracking-tight">Priority action plan</h2>
+          {recommendations.length === 0 ? (
+            <p className="mt-4 text-slate-600">No recommendations captured yet.</p>
+          ) : (
+            <div className="mt-6 overflow-hidden rounded-2xl border border-slate-200">
+              <table className="w-full border-collapse text-left text-sm print:text-[10pt]">
+                <thead className="bg-slate-100 text-xs uppercase tracking-wide text-slate-600">
+                  <tr>
+                    <th className="border-b border-slate-200 p-4">Priority</th>
+                    <th className="border-b border-slate-200 p-4">Recommendation</th>
+                    <th className="border-b border-slate-200 p-4">Supporting context</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {recommendations.slice(0, 6).map((recommendation, index) => (
+                    <tr key={recommendation.id} className="align-top">
+                      <td className="border-b border-slate-200 p-4 font-black">{index + 1}</td>
+                      <td className="border-b border-slate-200 p-4 font-black text-slate-900">
+                        <InlineFormattedText text={cleanPrintInsightTitle(recommendation.name)} />
+                      </td>
+                      <td className="border-b border-slate-200 p-4 leading-6 text-slate-600">
+                        <InlineFormattedText text={recommendation.caption} />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
+        <section className="print-page-break">
+          <p className="print-section-label text-xs font-black uppercase tracking-[0.3em] text-slate-500">Evidence appendix</p>
+          <h2 className="mt-2 text-3xl font-black tracking-tight">Captured artefacts</h2>
+          <div className="mt-4 grid gap-4 md:grid-cols-3 print:grid-cols-3">
+            <div className="rounded-2xl bg-slate-50 p-4">
+              <div className="text-3xl font-black">{photoArtefacts.length}</div>
+              <div className="mt-1 text-xs font-black uppercase tracking-wide text-slate-500">Photos</div>
+            </div>
+            <div className="rounded-2xl bg-slate-50 p-4">
+              <div className="text-3xl font-black">{noteArtefacts.length}</div>
+              <div className="mt-1 text-xs font-black uppercase tracking-wide text-slate-500">Notes</div>
+            </div>
+            <div className="rounded-2xl bg-slate-50 p-4">
+              <div className="text-3xl font-black">{allArtefacts.length}</div>
+              <div className="mt-1 text-xs font-black uppercase tracking-wide text-slate-500">Total evidence</div>
+            </div>
+          </div>
+
+          {photoArtefacts.length > 0 ? (
+            <div className="mt-6 grid gap-4 md:grid-cols-2 print:grid-cols-2">
+              {photoArtefacts.slice(0, 12).map((artefact) => (
+                <figure key={artefact.id} className="print-avoid-break overflow-hidden rounded-2xl border border-slate-200">
+                  {artefact.dataUrl || artefact.publicUrl ? (
+                    <img
+                      src={artefact.publicUrl ?? artefact.dataUrl}
+                      alt={artefact.caption || artefact.name}
+                      className="h-48 w-full object-cover print:h-36"
+                    />
+                  ) : null}
+                  <figcaption className="p-3 text-sm leading-6 text-slate-600">
+                    <span className="font-black text-slate-900">{artefact.name}</span>
+                    {artefact.caption ? ` — ${artefact.caption}` : ""}
+                  </figcaption>
+                </figure>
+              ))}
+            </div>
+          ) : null}
+        </section>
+      </div>
+    </main>
+  );
+}
+
 function ReportPage({ state, onNavigate }: { state: AppState; onNavigate: (page: Page) => void }) {
+  const isPrintReportView =
+  typeof window !== "undefined" &&
+  (new URLSearchParams(window.location.search).get("printReport") === "true" ||
+    /^\/report\/[^/]+\/print$/.test(window.location.pathname));
   const [openJourneyDays, setOpenJourneyDays] = useState<Partial<Record<DayId, boolean>>>({});
   const [expandedSections, setExpandedSections] = useState<string[]>([]);
   const [openTestingSessions, setOpenTestingSessions] = useState<Record<string, boolean>>({});
@@ -7089,12 +7525,13 @@ function ReportPage({ state, onNavigate }: { state: AppState; onNavigate: (page:
     for (const day of sprintDays) {
       for (const a of day.activities) keys.push(activityKey(day.id, a.id));
     }
+    
     return keys;
   }, []);
   const isSharedReportView =
   typeof window !== "undefined" &&
   window.location.pathname.startsWith("/report/");
-  
+
   const activeReportSessionId =
   typeof window !== "undefined"
     ? window.localStorage.getItem("sprintpilot.activeSessionId.v1")
@@ -7262,6 +7699,10 @@ function ReportPage({ state, onNavigate }: { state: AppState; onNavigate: (page:
   };
 
   const executiveSummary = useMemo(() => buildExecutiveSummary(state), [state]);
+  
+  if (isPrintReportView) {
+    return <PrintReport state={state} />;
+  }
 
   return (
     <main className="mx-auto max-w-[1280px] px-6 py-8">
@@ -8215,7 +8656,7 @@ export default function DesignSprintFacilitatorApp() {
   
     const params = new URLSearchParams(window.location.search);
     const hasSharedReportUrl =
-      params.has("reportSessionId") || /^\/report\/[^/]+$/.test(window.location.pathname);
+      params.has("reportSessionId") || /^\/report\/[^/]+(?:\/print)?$/.test(window.location.pathname);
   
     return hasSharedReportUrl ? "report" : "dashboard";
   });
@@ -8238,7 +8679,7 @@ export default function DesignSprintFacilitatorApp() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const queryReportSessionId = params.get("reportSessionId");
-    const pathReportMatch = window.location.pathname.match(/^\/report\/([^/]+)$/);
+    const pathReportMatch = window.location.pathname.match(/^\/report\/([^/]+)(?:\/print)?$/);
     const reportSessionId = queryReportSessionId ?? pathReportMatch?.[1] ?? null;
 
     if (!reportSessionId) return;

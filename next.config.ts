@@ -8,6 +8,10 @@ const nextConfig: NextConfig = {
         source: "/report/:sessionId",
         destination: "/?reportSessionId=:sessionId",
       },
+      {
+        source: "/report/:sessionId/print",
+        destination: "/?reportSessionId=:sessionId&printReport=true",
+      },
     ];
   },
 };
