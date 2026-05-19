@@ -7184,11 +7184,24 @@ function PrintReport({ state }: { state: AppState }) {
         usefulness: session.usefulnessScore ?? 0,
         confidence: session.confidenceScore ?? 0,
         completion: session.taskCompletionScore ?? 0,
-        quote: session.keyQuote ?? "",
-        behaviour: session.observedBehaviour ?? "",
-        friction: session.frictionPoint ?? "",
-        positive: session.positiveSignal ?? "",
-        recommendation: session.recommendation ?? "",
+        quote: session.keyQuotes?.trim() || session.keyQuote?.trim() || "",
+        behaviour:
+          session.participantSummary?.trim() ||
+          session.observedBehaviour?.trim() ||
+          "",
+        friction:
+          session.frictionPoints?.trim() ||
+          session.contextNeeded?.trim() ||
+          session.frictionPoint?.trim() ||
+          "",
+        positive:
+          session.positiveSignals?.trim() ||
+          session.positiveSignal?.trim() ||
+          "",
+        recommendation:
+          session.recommendedImprovements?.trim() ||
+          session.recommendation?.trim() ||
+          "",
       };
     })
     .filter(
