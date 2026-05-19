@@ -1850,6 +1850,13 @@ type TestingSession = {
   frictionPoint: string;
   positiveSignal: string;
   recommendation: string;
+  participantSummary?: string;
+  keyQuotes?: string;
+  positiveSignals?: string;
+  frictionPoints?: string;
+  contextNeeded?: string;
+  recommendedImprovements?: string;
+  confidenceLevel?: "high" | "medium" | "low";
 };
 
 type AppState = {
@@ -2510,32 +2517,39 @@ function reducer(state: AppState, action: Action): AppState {
       };
     }
 
-    case "testing/updateSession": {
-      const existing = state.testingSessions[action.key] ?? {
-        participant: "",
-        role: "",
-        clarityScore: 3,
-        usefulnessScore: 3,
-        confidenceScore: 3,
-        taskCompletionScore: 3,
-        keyQuote: "",
-        observedBehaviour: "",
-        frictionPoint: "",
-        positiveSignal: "",
-        recommendation: "",
-      };
+case "testing/updateSession": {
+  const existing = state.testingSessions[action.key] ?? {
+    participant: "",
+    role: "",
+    clarityScore: 3,
+    usefulnessScore: 3,
+    confidenceScore: 3,
+    taskCompletionScore: 3,
+    keyQuote: "",
+    observedBehaviour: "",
+    frictionPoint: "",
+    positiveSignal: "",
+    recommendation: "",
+    participantSummary: "",
+    keyQuotes: "",
+    positiveSignals: "",
+    frictionPoints: "",
+    contextNeeded: "",
+    recommendedImprovements: "",
+    confidenceLevel: "medium" as const,
+  };
 
-      return {
-        ...state,
-        testingSessions: {
-          ...state.testingSessions,
-          [action.key]: {
-            ...existing,
-            [action.field]: action.value,
-          },
-        },
-      };
-    }
+  return {
+    ...state,
+    testingSessions: {
+      ...state.testingSessions,
+      [action.key]: {
+        ...existing,
+        [action.field]: action.value,
+      },
+    },
+  };
+}
 
     case "schedule/updateItem": {
       const current =
@@ -4683,6 +4697,13 @@ function TestingSessionEvidenceCard({
     frictionPoint: "",
     positiveSignal: "",
     recommendation: "",
+    participantSummary: "",
+    keyQuotes: "",
+    positiveSignals: "",
+    frictionPoints: "",
+    contextNeeded: "",
+    recommendedImprovements: "",
+    confidenceLevel: "medium",
   };
 
   const update = (field: keyof TestingSession, nextValue: string | number) => {
@@ -4762,12 +4783,60 @@ function TestingSessionEvidenceCard({
         </label>
       </div>
 
+      <div className="mt-4 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div>
+          <h3 className="text-lg font-black text-slate-900">Structured Session Capture</h3>
+          <p className="mt-1 text-sm leading-6 text-slate-500">
+            Capture the evidence needed for consistent results analysis and recommended next steps.
+          </p>
+        </div>
+
+        <div className="mt-5 grid gap-4 lg:grid-cols-2">
+          {([
+            ["participantSummary", "Participant Summary", "Short overview of the session outcome.", "Summarise the most important outcome from this participant session."],
+            ["keyQuotes", "Key Quotes", "Direct participant quotes only.", "Paste direct quotes from the participant."],
+            ["positiveSignals", "Positive Signals", "What the participant responded positively to.", "Capture what worked well or created a positive response."],
+            ["frictionPoints", "Friction / Uncertainty", "What confused, slowed, or frustrated the participant.", "Capture friction, uncertainty, confusion, or blockers."],
+            ["contextNeeded", "Context or Guidance Needed", "What needed clearer explanation, rationale, or next-step context.", "Capture what required more context, explanation, or guidance."],
+            ["recommendedImprovements", "Recommendations / Improvements", "Suggested changes or improvements based on the session.", "Capture the recommended change or next step this evidence points to."],
+          ] as Array<[keyof TestingSession, string, string, string]>).map(([field, label, helper, placeholder]) => (
+            <label key={field} className="block rounded-2xl border bg-slate-50 p-4 lg:last:col-span-2">
+              <span className="text-xs font-black uppercase tracking-wide text-slate-500">{label}</span>
+              <p className="mt-1 text-xs leading-5 text-slate-500">{helper}</p>
+              <textarea
+                value={String(value[field] ?? "")}
+                onChange={(event) => update(field, event.target.value)}
+                placeholder={placeholder}
+                rows={3}
+                className="mt-2 min-h-24 w-full resize-y rounded-xl border bg-white px-3 py-2 text-sm leading-6 outline-none focus:ring-2 focus:ring-purple-200"
+              />
+            </label>
+          ))}
+
+          <label className="block rounded-2xl border bg-slate-50 p-4 md:max-w-xs">
+            <span className="text-xs font-black uppercase tracking-wide text-slate-500">Confidence Level</span>
+            <p className="mt-1 text-xs leading-5 text-slate-500">How strong is this signal from the session?</p>
+            <select
+              value={value.confidenceLevel ?? "medium"}
+              onChange={(event) => update("confidenceLevel", event.target.value as "high" | "medium" | "low")}
+              className="mt-2 w-full rounded-xl border bg-white px-3 py-2 text-sm font-black text-slate-700 outline-none focus:ring-2 focus:ring-purple-200"
+            >
+              <option value="high">High</option>
+              <option value="medium">Medium</option>
+              <option value="low">Low</option>
+            </select>
+          </label>
+        </div>
+      </div>
+
       <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
         <Likert label="Clarity" field="clarityScore" helper="How clearly did they understand the concept?" />
         <Likert label="Usefulness" field="usefulnessScore" helper="How useful or valuable did it appear to them?" />
         <Likert label="Confidence" field="confidenceScore" helper="How confident did they seem using it?" />
         <Likert label="Task completion" field="taskCompletionScore" helper="How successfully did they complete the test task?" />
       </div>
+
+      <p className="mt-5 text-xs font-black uppercase tracking-wide text-slate-400">Legacy / additional notes</p>
 
       <div className="mt-4 grid gap-3 lg:grid-cols-2">
         {([
@@ -7493,10 +7562,10 @@ function PrintReport({ state }: { state: AppState }) {
                 <figure key={artefact.id} className="print-avoid-break overflow-hidden rounded-2xl border border-slate-200">
                   {artefact.dataUrl || artefact.publicUrl ? (
                     <img
-                      src={artefact.publicUrl ?? artefact.dataUrl}
-                      alt={artefact.caption || artefact.name}
-                      className="h-48 w-full object-cover print:h-36"
-                    />
+                        src={getArtefactImageSrc(artefact)}
+                        alt={artefact.caption || artefact.name}
+                        className="h-48 w-full object-cover print:h-36"
+                      />
                   ) : null}
                   <figcaption className="p-3 text-sm leading-6 text-slate-600">
                     <span className="font-black text-slate-900">{artefact.name}</span>
@@ -7510,6 +7579,21 @@ function PrintReport({ state }: { state: AppState }) {
       </div>
     </main>
   );
+}
+
+function getArtefactImageSrc(artefact: Artefact) {
+  if (artefact.publicUrl) return artefact.publicUrl;
+  if (artefact.dataUrl) return artefact.dataUrl;
+
+  if (artefact.storagePath && supabase) {
+    const { data } = supabase.storage
+      .from("sprint-artefacts")
+      .getPublicUrl(artefact.storagePath);
+
+    return data.publicUrl;
+  }
+
+  return "";
 }
 
 function ReportPage({ state, onNavigate }: { state: AppState; onNavigate: (page: Page) => void }) {
