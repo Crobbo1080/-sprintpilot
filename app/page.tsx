@@ -4706,6 +4706,25 @@ function TestingSessionEvidenceCard({
     confidenceLevel: "medium",
   };
 
+  const hasStructuredFields = Boolean(
+    value.participantSummary?.trim() ||
+      value.keyQuotes?.trim() ||
+      value.positiveSignals?.trim() ||
+      value.frictionPoints?.trim() ||
+      value.contextNeeded?.trim() ||
+      value.recommendedImprovements?.trim(),
+  );
+
+  const hasLegacyFields = Boolean(
+    value.keyQuote?.trim() ||
+      value.observedBehaviour?.trim() ||
+      value.frictionPoint?.trim() ||
+      value.positiveSignal?.trim() ||
+      value.recommendation?.trim(),
+  );
+
+  const showLegacyFields = hasLegacyFields && !hasStructuredFields;
+
   const update = (field: keyof TestingSession, nextValue: string | number) => {
     dispatch({ type: "testing/updateSession", key: sessionKey, field, value: nextValue });
   };
@@ -4836,6 +4855,8 @@ function TestingSessionEvidenceCard({
         <Likert label="Task completion" field="taskCompletionScore" helper="How successfully did they complete the test task?" />
       </div>
 
+      {showLegacyFields ? (
+        <>
       <p className="mt-5 text-xs font-black uppercase tracking-wide text-slate-400">Legacy / additional notes</p>
 
       <div className="mt-4 grid gap-3 lg:grid-cols-2">
@@ -4925,6 +4946,8 @@ function TestingSessionEvidenceCard({
           </label>
         ))}
       </div>
+        </>
+      ) : null}
     </div>
   );
 }
@@ -7734,11 +7757,24 @@ function ReportPage({ state, onNavigate }: { state: AppState; onNavigate: (page:
         usefulness: session.usefulnessScore ?? 0,
         confidence: session.confidenceScore ?? 0,
         completion: session.taskCompletionScore ?? 0,
-        quote: session.keyQuote ?? "",
-        behaviour: session.observedBehaviour ?? "",
-        friction: session.frictionPoint ?? "",
-        positive: session.positiveSignal ?? "",
-        recommendation: session.recommendation ?? "",
+        quote: session.keyQuotes?.trim() || session.keyQuote?.trim() || "",
+        behaviour:
+          session.participantSummary?.trim() ||
+          session.observedBehaviour?.trim() ||
+          "",
+        friction:
+          session.frictionPoints?.trim() ||
+          session.contextNeeded?.trim() ||
+          session.frictionPoint?.trim() ||
+          "",
+        positive:
+          session.positiveSignals?.trim() ||
+          session.positiveSignal?.trim() ||
+          "",
+        recommendation:
+          session.recommendedImprovements?.trim() ||
+          session.recommendation?.trim() ||
+          "",
       };
     })
     .filter(
