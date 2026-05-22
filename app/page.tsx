@@ -267,6 +267,17 @@ type SprintDay = {
 };
 
 const cx = (...classes: Array<string | false | null | undefined>) => classes.filter(Boolean).join(" ");
+const darkCardClass =
+  "dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100";
+
+const darkMutedClass =
+  "dark:text-slate-300";
+
+const darkSubtleClass =
+  "dark:text-slate-400";
+
+const darkInputClass =
+  "dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:placeholder:text-slate-500";
 
 const colour = {
   blue: { solid: "bg-blue-600 text-white", text: "text-blue-600", soft: "bg-blue-50 text-blue-700 border-blue-200", border: "border-blue-600", ring: "ring-blue-100" },
@@ -303,7 +314,7 @@ function sprintProgressFillStyle(percent: number): React.CSSProperties {
 
   return {
     width: safePercent === 0 ? "0%" : `${safePercent}%`,
-    background:
+    backgroundImage:
       "linear-gradient(90deg, #3b82f6 0%, #3b82f6 18.75%, #10b981 31.25%, #10b981 43.75%, #f97316 56.25%, #f97316 68.75%, #a855f7 81.25%, #a855f7 100%)",
     backgroundSize: safePercent === 0 ? "100% 100%" : `${10000 / safePercent}% 100%`,
     backgroundRepeat: "no-repeat",
@@ -2740,6 +2751,8 @@ function Header({
   sprintName,
   facilitatorMode,
   setFacilitatorMode,
+  isDarkTheme,
+  setIsDarkTheme,
 }: {
   page: Page;
   onNavigate: (page: Page) => void;
@@ -2747,6 +2760,8 @@ function Header({
   sprintName: string;
   facilitatorMode: boolean;
   setFacilitatorMode: React.Dispatch<React.SetStateAction<boolean>>;
+  isDarkTheme: boolean;
+  setIsDarkTheme: React.Dispatch<React.SetStateAction<boolean>>;
 }) {
   const isSharedReportView = typeof window !== "undefined" && window.location.pathname.startsWith("/report/");
 
@@ -2777,7 +2792,11 @@ function Header({
               onClick={() => onNavigate(item.id)}
               className={cx(
                 "inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg px-3 py-2 text-sm font-semibold",
-                active ? "bg-[#070617] text-white" : "text-slate-700 hover:bg-slate-100",
+                active
+                  ? "bg-[#070617] text-white"
+                  : isDarkTheme
+                    ? "text-slate-300 hover:bg-slate-800"
+                    : "text-slate-700 hover:bg-slate-100",
                 active && c?.solid,
               )}
             >
@@ -2791,7 +2810,14 @@ function Header({
   );
 
   return (
-    <header className="sticky top-0 z-40 overflow-x-hidden border-b bg-white/95 backdrop-blur">
+    <header
+      className={cx(
+        "sticky top-0 z-40 overflow-x-hidden border-b backdrop-blur transition-colors duration-300",
+        isDarkTheme
+          ? "border-cyan-400/20 bg-slate-950/95 text-slate-100"
+          : "border-slate-200 bg-white/95 text-slate-950",
+      )}
+    >
       <div className="mx-auto flex max-w-[1440px] items-center gap-3 px-4 py-3 lg:px-6">
         <button
           onClick={() => onNavigate("dashboard")}
@@ -2802,7 +2828,12 @@ function Header({
           </span>
           <div className="min-w-0">
             <div className="text-sm font-black leading-5">Sprintpilot</div>
-            <div className="max-w-[14rem] truncate text-xs font-semibold text-slate-500 sm:max-w-[18rem] xl:max-w-none">
+            <div
+              className={cx(
+                "max-w-[14rem] truncate text-xs font-semibold sm:max-w-[18rem] xl:max-w-none",
+                isDarkTheme ? "text-slate-400" : "text-slate-500",
+              )}
+            >
               {sprintName || "Design Sprint"}
             </div>
           </div>
@@ -2815,7 +2846,14 @@ function Header({
         ) : null}
 
         <div className="ml-auto flex shrink-0 items-center gap-2">
-          <span className="hidden rounded-lg border px-3 py-1 text-xs font-bold xl:inline-flex">
+          <span
+            className={cx(
+              "hidden rounded-lg border px-3 py-1 text-xs font-bold xl:inline-flex",
+              isDarkTheme
+                ? "border-cyan-400/20 bg-slate-900 text-cyan-200"
+                : "border-slate-200 bg-white text-slate-700",
+            )}
+          >
             Day {currentDay.replace("day", "")}/4
           </span>
           <Button
@@ -2835,6 +2873,27 @@ function Header({
             Facilitator
             {facilitatorMode ? <span className="rounded-full bg-white/15 px-1.5 py-0.5 text-[10px] font-black">ON</span> : null}
           </Button>
+          {/* Theme toggle button */}
+          <Button
+            variant="secondary"
+            className={cx(
+              "whitespace-nowrap px-3 py-1.5",
+              isDarkTheme
+                ? "border-cyan-400/30 bg-cyan-400/10 text-cyan-200 hover:bg-cyan-400/20"
+                : "",
+            )}
+            onClick={() => setIsDarkTheme((current) => !current)}
+          >
+            <span
+              className={cx(
+                "h-2 w-2 rounded-full",
+                isDarkTheme
+                  ? "bg-cyan-300 shadow-[0_0_12px_rgba(103,232,249,0.9)]"
+                  : "bg-slate-400",
+              )}
+            />
+            {isDarkTheme ? "Light Theme" : "Dark Theme"}
+          </Button>
           <Button variant="secondary" className="hidden px-3 py-1.5 sm:flex" aria-label="Settings">
             <Settings className="h-4 w-4" />
           </Button>
@@ -2842,13 +2901,27 @@ function Header({
       </div>
 
       {facilitatorMode ? (
-        <div className="border-t bg-white/95 px-4 py-2 lg:px-6 xl:hidden">
+        <div
+          className={cx(
+            "border-t px-4 py-2 lg:px-6 xl:hidden",
+            isDarkTheme
+              ? "border-cyan-400/20 bg-slate-950/95"
+              : "border-slate-200 bg-white/95",
+          )}
+        >
           {nav}
         </div>
       ) : null}
 
       {facilitatorMode ? (
-        <div className="hidden border-t bg-white/95 xl:block">
+        <div
+          className={cx(
+            "hidden border-t xl:block",
+            isDarkTheme
+              ? "border-cyan-400/20 bg-slate-950/95"
+              : "border-slate-200 bg-white/95",
+          )}
+        >
           <div className="mx-auto max-w-[1440px] px-6 py-2">
             {nav}
           </div>
@@ -3915,8 +3988,8 @@ useEffect(() => {
         </div>
       </Panel>
 
-      <div className="mt-8 grid gap-6 lg:grid-cols-[1.4fr_1fr]">
-        <DarkPanel className="border-0 p-6 shadow-2xl ring-1 ring-slate-900/10">
+      <div className="mt-8 grid gap-6 rounded-[1rem] border border-slate-700 bg-slate-950 p-6 text-slate-950 lg:grid-cols-[1.4fr_1fr]">
+      <DarkPanel className="border-0 !bg-slate-950 p-6 shadow-2xl ring-1 ring-slate-950/60">
           <div className="flex items-start justify-between gap-4">
             <div>
               <h2 className="flex items-center gap-2 text-lg font-black">
@@ -5786,11 +5859,11 @@ function ArtefactCapture({
   };
 
   return (
-    <div className="mt-4 rounded-xl border bg-white p-3">
+    <div className="mt-4 rounded-xl border bg-white p-0">
       <button
         type="button"
         onClick={() => setIsOpen((value) => !value)}
-        className="flex w-full items-center justify-between gap-3 text-left"
+        className="flex w-full items-center justify-between gap-3 rounded-xl p-3 text-left transition hover:bg-slate-50"
       >
         <div>
           <h3 className="text-sm font-black">Artefacts</h3>
@@ -5810,7 +5883,7 @@ function ArtefactCapture({
       </button>
 
       {isOpen ? (
-        <div className="mt-4">
+        <div className="border-t p-3">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <h3 className="text-sm font-black">Artefacts</h3>
@@ -6207,21 +6280,30 @@ function ResourcesPage({ setPage }: { setPage: (page: Page) => void }) {
 function ResourceGuideLibrary({ onOpenGuide }: { onOpenGuide: (guide: ResourceGuide) => void }) {
   return (
     <div className="mt-4 space-y-5">
-      <DarkPanel className="border-0 p-6">
+      <section className="rounded-[1rem] border border-white bg-black p-6 text-white">
         <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
           <div>
-            <h2 className="text-xl font-black">Recommended starting point</h2>
-            <p className="mt-1 max-w-2xl text-sm text-white/70">
+            <h2 className="text-xl font-black text-white">Recommended starting point</h2>
+            <p className="mt-1 max-w-2xl text-sm leading-6 text-slate-300">
               If someone is new to design sprints, start with the Sprint Facilitation Playbook, Setup & Logistics, and Day Opening & Closing Scripts.
             </p>
           </div>
-          <div className="flex flex-wrap gap-2">
-            <span className="rounded-full bg-white/10 px-3 py-1 text-xs font-black text-white">1. Setup</span>
-            <span className="rounded-full bg-white/10 px-3 py-1 text-xs font-black text-white">2. Playbook</span>
-            <span className="rounded-full bg-white/10 px-3 py-1 text-xs font-black text-white">3. Scripts</span>
-          </div>
+          <div className="flex flex-wrap gap-3">
+  {[
+    "1. Setup",
+    "2. Playbook",
+    "3. Scripts",
+  ].map((pill) => (
+    <span
+      key={pill}
+      className="rounded-full border border-white/30 bg-white px-4 py-2 text-sm font-semibold text-black shadow-sm"
+    >
+      {pill}
+    </span>
+  ))}
+</div>
         </div>
-      </DarkPanel>
+      </section>
 
       {resourceCategories.map((category) => (
         <ResourceCategorySection key={category.title} category={category} onOpenGuide={onOpenGuide} />
@@ -6771,6 +6853,28 @@ function summariseSprintThemes(artefacts: Record<string, Artefact[]>) {
   return grouped.filter((group) => group.artefacts.length > 0);
 }
 
+function regroupArtefactsByActivity(
+  artefacts: Record<string, Artefact[]>,
+): Record<string, Artefact[]> {
+  const regrouped: Record<string, Artefact[]> = {};
+
+  Object.values(artefacts)
+    .flat()
+    .forEach((artefact) => {
+      const targetKey =
+        artefact.activityKey && artefact.activityKey !== "recovered-import"
+          ? artefact.activityKey
+          : "unassigned";
+
+      if (!regrouped[targetKey]) {
+        regrouped[targetKey] = [];
+      }
+
+      regrouped[targetKey].push(artefact);
+    });
+
+  return regrouped;
+}
 
 function extractTopRecommendations(artefacts: Record<string, Artefact[]>) {
   return Object.values(artefacts)
@@ -7048,7 +7152,7 @@ function ReportArtefactsSection({
             const isOpen = Boolean(openArtefactDays[dayGroup.key]);
 
             return (
-              <section key={dayGroup.key} className="rounded-3xl border bg-slate-50 p-4">
+              <section key={dayGroup.key} className="rounded-3xl">
                 <button
                   type="button"
                   onClick={() =>
@@ -7057,7 +7161,19 @@ function ReportArtefactsSection({
                       [dayGroup.key]: !current[dayGroup.key],
                     }))
                   }
-                  className="flex w-full flex-wrap items-center gap-3 text-left"
+                  className={cx(
+                    "group flex w-full flex-wrap items-center gap-3 rounded-2xl border px-4 py-3 text-left transition-colors duration-200",
+                    dayGroup.key === "day1" &&
+                      "border-blue-200 bg-blue-50 shadow-sm hover:bg-blue-100 dark:!border-blue-400/35 dark:!bg-slate-700/45 dark:hover:!bg-slate-700/70",
+                    dayGroup.key === "day2" &&
+                      "border-emerald-200 bg-emerald-50 shadow-sm hover:bg-emerald-100 dark:!border-emerald-400/35 dark:!bg-slate-700/45 dark:hover:!bg-slate-700/70",
+                    dayGroup.key === "day3" &&
+                      "border-orange-200 bg-orange-100 shadow-sm hover:bg-orange-200 dark:!border-orange-400/35 dark:!bg-slate-700/45 dark:hover:!bg-slate-700/70",
+                    dayGroup.key === "day4" &&
+                      "border-purple-200 bg-purple-50 shadow-sm hover:bg-purple-100 dark:!border-purple-400/35 dark:!bg-slate-700/45 dark:hover:!bg-slate-700/70",
+                    dayGroup.key === "unknown" &&
+                      "border-slate-200 bg-slate-50 shadow-sm hover:bg-slate-100 dark:!border-slate-500/35 dark:!bg-slate-700/45 dark:hover:!bg-slate-700/70",
+                  )}
                 >
                   <div>
                     <h3 className="font-black">{dayGroup.title}</h3>
@@ -7637,12 +7753,15 @@ function ReportPage({ state, onNavigate }: { state: AppState; onNavigate: (page:
   typeof window !== "undefined" &&
   (new URLSearchParams(window.location.search).get("printReport") === "true" ||
     /^\/report\/[^/]+\/print$/.test(window.location.pathname));
+  const [isDarkReportTheme, setIsDarkReportTheme] = useState(false);
   const [openJourneyDays, setOpenJourneyDays] = useState<Partial<Record<DayId, boolean>>>({});
   const [expandedSections, setExpandedSections] = useState<string[]>([]);
   const [openTestingSessions, setOpenTestingSessions] = useState<Record<string, boolean>>({});
   const [isPreparingPdfExport, setIsPreparingPdfExport] = useState(false);
   const [isShareMenuOpen, setIsShareMenuOpen] = useState(false);
   const [shareStatusMessage, setShareStatusMessage] = useState("");
+  const [expandedNoteDays, setExpandedNoteDays] =
+  useState<Partial<Record<DayId, boolean>>>({});
 
   const allKeys = useMemo(() => {
     const keys: string[] = [];
@@ -7824,7 +7943,12 @@ function ReportPage({ state, onNavigate }: { state: AppState; onNavigate: (page:
   }
 
   return (
-    <main className="mx-auto max-w-[1280px] px-6 py-8">
+    <main
+      className={cx(
+        "mx-auto min-h-screen max-w-[1280px] px-6 py-8 transition-colors duration-300 print:bg-white print:text-slate-950",
+        "bg-slate-50 text-slate-950 dark:!bg-[#020617] dark:!text-slate-100",
+      )}
+    >
       <style jsx global>{`
         @media print {
           @page {
@@ -7913,8 +8037,20 @@ function ReportPage({ state, onNavigate }: { state: AppState; onNavigate: (page:
 
       <div className="mt-6 flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
         <div>
-          <h1 className="text-3xl font-black">Sprint Report</h1>
-          <p className="mt-1 text-slate-500">Generated from your captured sprint setup, activity progress, HMWs, and notes.</p>
+          <div className="flex flex-wrap items-center gap-3">
+            <h1 className={cx("text-3xl font-black", isDarkReportTheme ? "text-white" : "text-slate-950")}>Sprint Report</h1>
+            <span
+              className={cx(
+                "rounded-full border px-3 py-1 text-xs font-black uppercase tracking-wide",
+                isDarkReportTheme
+                  ? "border-cyan-400/30 bg-cyan-400/10 text-cyan-200"
+                  : "border-slate-200 bg-slate-100 text-slate-600",
+              )}
+            >
+              Day {progress.count}/{progress.total}
+            </span>
+          </div>
+          <p className={cx("mt-1", isDarkReportTheme ? "text-slate-400" : "text-slate-500")}>Generated from your captured sprint setup, activity progress, HMWs, and notes.</p>
         </div>
 
         <div className="relative flex flex-wrap items-center gap-2" data-print-hidden="true">
@@ -8075,18 +8211,32 @@ function ReportPage({ state, onNavigate }: { state: AppState; onNavigate: (page:
         </Panel>
       </div>
 
-      <Panel className="mt-6 overflow-hidden border-0 !bg-slate-950 text-white shadow-2xl print:break-inside-avoid">
+     <Panel
+        className={cx(
+          "mt-6 overflow-hidden print:break-inside-avoid",
+          isDarkReportTheme
+            ? "border border-cyan-400/20 bg-gradient-to-br from-slate-900 via-slate-950 to-black text-slate-100 shadow-[0_0_50px_rgba(34,211,238,0.12)]"
+            : "border border-slate-200 bg-gradient-to-br from-slate-50 via-white to-slate-100 shadow-xl shadow-slate-200/60",
+        )}
+      >
         <div className="grid gap-8 p-8 lg:grid-cols-[1.2fr_0.8fr]">
           <div>
-            <div className="inline-flex items-center gap-2 rounded-full bg-white/10 px-3 py-1 text-xs font-black uppercase tracking-wide text-white/70">
+            <div
+              className={cx(
+                "inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-black uppercase tracking-wide backdrop-blur-sm",
+                isDarkReportTheme
+                  ? "border-cyan-400/30 bg-slate-950 text-slate-100"
+                  : "border-slate-200 bg-slate-100 text-slate-600",
+              )}
+            >
               Executive summary
             </div>
 
-            <h2 className="mt-5 text-3xl font-black leading-tight lg:text-4xl">
+            <h2 className={cx("mt-5 text-3xl font-black leading-tight lg:text-4xl", isDarkReportTheme ? "text-white" : "text-slate-950")}>
               Sprint outcomes and strategic direction
             </h2>
 
-            <div className="mt-5 max-w-3xl space-y-4 text-base leading-8 text-white/75">
+            <div className={cx("mt-5 max-w-3xl space-y-4 text-base leading-8", isDarkReportTheme ? "text-slate-300" : "text-slate-600")}>
               <p>
                 This Design Sprint provided a structured and evidence-led approach to exploring a complex service and user experience challenge. The sprint methodology enabled the team to move rapidly from assumptions and fragmented understanding towards clearer strategic direction and validated learning.
               </p>
@@ -8105,58 +8255,135 @@ function ReportPage({ state, onNavigate }: { state: AppState; onNavigate: (page:
             </div>
 
             <div className="mt-6 grid gap-3 sm:grid-cols-3">
-              <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-                <div className="text-3xl font-black">{executiveSummary.decisions}</div>
-                <div className="mt-1 text-xs font-black uppercase tracking-wide text-white/60">
+              <div
+                className={cx(
+                  "rounded-2xl border p-4 backdrop-blur-sm",
+                  isDarkReportTheme
+  ? "border-slate-700 bg-slate-950 text-slate-100"
+  : "border-slate-200 bg-white text-slate-950",
+                )}
+              >
+                <div className={cx("text-3xl font-black", isDarkReportTheme ? "text-white" : "text-slate-950")}>{executiveSummary.decisions}</div>
+                <div className={cx("mt-1 text-xs font-black uppercase tracking-wide", isDarkReportTheme ? "text-slate-300" : "text-slate-500")}>
                   Key decisions
                 </div>
               </div>
 
-              <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-                <div className="text-3xl font-black">{executiveSummary.recommendations}</div>
-                <div className="mt-1 text-xs font-black uppercase tracking-wide text-white/60">
+              <div
+                className={cx(
+                  "rounded-2xl border p-4 backdrop-blur-sm",
+                  isDarkReportTheme
+  ? "border-slate-700 bg-slate-950 text-slate-100"
+  : "border-slate-200 bg-white text-slate-950",
+                )}
+              >
+                <div className={cx("text-3xl font-black", isDarkReportTheme ? "text-white" : "text-slate-950")}>{executiveSummary.recommendations}</div>
+                <div className={cx("mt-1 text-xs font-black uppercase tracking-wide", isDarkReportTheme ? "text-slate-300" : "text-slate-500")}>
                   Recommendations
                 </div>
               </div>
 
-              <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-                <div className="text-3xl font-black">{executiveSummary.risks}</div>
-                <div className="mt-1 text-xs font-black uppercase tracking-wide text-white/60">
+              <div
+                className={cx(
+                  "rounded-2xl border p-4 backdrop-blur-sm",
+                  isDarkReportTheme
+  ? "border-slate-700 bg-slate-950 text-slate-100"
+  : "border-slate-200 bg-white text-slate-950",
+                )}
+              >
+                <div className={cx("text-3xl font-black", isDarkReportTheme ? "text-white" : "text-slate-950")}>{executiveSummary.risks}</div>
+                <div className={cx("mt-1 text-xs font-black uppercase tracking-wide", isDarkReportTheme ? "text-slate-300" : "text-slate-500")}>
                   Risks identified
                 </div>
               </div>
             </div>
           </div>
 
-          <div className="rounded-[2rem] border border-white/10 bg-white/5 p-6 backdrop-blur-xl">
-            <div className="text-xs font-black uppercase tracking-wide text-white/60">
+          <div
+            className={cx(
+              "rounded-[2rem] border p-6 backdrop-blur-sm",
+              isDarkReportTheme
+              ? "border-slate-700 bg-slate-950 text-slate-100"
+              : "border-slate-200 bg-slate-100 text-slate-950"
+            )}
+          >
+            <div className={cx("text-xs font-black uppercase tracking-wide", isDarkReportTheme ? "text-slate-300" : "text-slate-500")}>
               Sprint status
             </div>
 
-            <div className="mt-4 h-4 overflow-hidden rounded-full bg-white/10">
+            <div
+              className={cx(
+                "mt-4 h-4 w-full overflow-hidden rounded-full border",
+                isDarkReportTheme
+                  ? "border-slate-700 bg-slate-950"
+                  : "border-slate-200 bg-slate-200/80",
+              )}
+            >
               <div
-                className="h-full rounded-full bg-gradient-to-r from-white to-white/60"
-                style={{ width: `${progress.pct}%` }}
+                className="relative z-10 h-full rounded-full transition-all duration-500"
+                style={{
+                  width: `${progress.pct}%`,
+                  minWidth: progress.pct > 0 ? "1rem" : "0",
+                  backgroundImage:
+                    "linear-gradient(90deg, #22d3ee 0%, #60a5fa 25%, #c084fc 55%, #e879f9 75%, #a78bfa 100%)",
+                  backgroundColor: "#22d3ee",
+                  boxShadow: isDarkReportTheme
+                    ? "0 0 18px rgba(34, 211, 238, 0.35)"
+                    : "none",
+                }}
               />
             </div>
 
-            <div className="mt-3 flex items-center justify-between text-sm text-white/70">
+            <div
+              className={cx(
+                "mt-3 flex items-center justify-between text-sm",
+                isDarkReportTheme ? "text-slate-300" : "text-slate-600",
+              )}
+            >
               <span>Completion progress</span>
-              <span>{progress.pct}%</span>
+              <span className={cx("font-black", isDarkReportTheme ? "text-white" : "text-slate-800")}>{progress.pct}%</span>
             </div>
 
             <div className="mt-8 space-y-4">
               {sprintJourney.map((entry) => (
-                <div key={entry.day.id} className="rounded-2xl border border-white/10 bg-black/10 p-4">
+                <div
+                  key={entry.day.id}
+                  className={cx(
+                    "rounded-2xl border p-4",
+                    entry.day.id === "day1" &&
+                      (isDarkReportTheme
+                        ? "border-blue-400/30 bg-gradient-to-br from-blue-500/20 via-slate-900 to-slate-950"
+                        : "border-blue-100 bg-gradient-to-br from-blue-50 via-white to-white"),
+                    entry.day.id === "day2" &&
+                      (isDarkReportTheme
+                        ? "border-emerald-400/30 bg-gradient-to-br from-emerald-500/20 via-slate-900 to-slate-950"
+                        : "border-emerald-100 bg-gradient-to-br from-emerald-50 via-white to-white"),
+                    entry.day.id === "day3" &&
+                      (isDarkReportTheme
+                        ? "border-amber-400/30 bg-gradient-to-br from-amber-500/20 via-slate-900 to-slate-950"
+                        : "border-amber-100 bg-gradient-to-br from-amber-50 via-white to-white"),
+                    entry.day.id === "day4" &&
+                      (isDarkReportTheme
+                        ? "border-purple-400/30 bg-gradient-to-br from-purple-500/20 via-slate-900 to-slate-950"
+                        : "border-purple-100 bg-gradient-to-br from-purple-50 via-white to-white"),
+                  )}
+                >
                   <div className="flex items-center justify-between gap-3">
                     <div>
-                      <div className="text-sm font-black">{entry.day.label}</div>
-                      <div className="text-xs text-white/60">
+                      <div className={cx("text-sm font-black", isDarkReportTheme ? "text-white" : "text-slate-900")}>{entry.day.label}</div>
+                      <div className={cx("text-xs", isDarkReportTheme ? "text-slate-400" : "text-slate-500")}>
                         {entry.completedActivities.length} activities completed
                       </div>
                     </div>
 
-                    <span className="rounded-full bg-white/10 px-3 py-1 text-[11px] font-black text-white/80">
+                    <span
+                      className={cx(
+                        "rounded-full border px-3 py-1 text-[11px] font-black shadow-sm",
+                        isDarkReportTheme
+                          ? "border-cyan-400/30 bg-cyan-400/10 text-cyan-100"
+                          : "border-slate-300 bg-slate-100 text-slate-700",
+                      )}
+                    >
                       {entry.artefacts.length} artefacts
                     </span>
                   </div>
@@ -8211,30 +8438,28 @@ function ReportPage({ state, onNavigate }: { state: AppState; onNavigate: (page:
           </div>
 
           <div className="mt-5 flex flex-wrap gap-3">
-            <div className="rounded-full bg-slate-100 px-4 py-2 text-sm font-black text-slate-700">
-              Photos {photoArtefacts.length}
-            </div>
-
-            <div className="rounded-full bg-blue-100 px-4 py-2 text-sm font-black text-blue-700">
-              Insights {insightArtefacts.length}
-            </div>
-
-            <div className="rounded-full bg-emerald-100 px-4 py-2 text-sm font-black text-emerald-700">
-              Opportunities {opportunityArtefacts.length}
-            </div>
-
-            <div className="rounded-full bg-purple-100 px-4 py-2 text-sm font-black text-purple-700">
-              Decisions {decisionArtefacts.length}
-            </div>
-
-            <div className="rounded-full bg-red-100 px-4 py-2 text-sm font-black text-red-700">
-              Risks {riskArtefacts.length}
-            </div>
-
-            <div className="rounded-full bg-cyan-100 px-4 py-2 text-sm font-black text-cyan-700">
-              Recommendations {recommendationArtefacts.length}
-            </div>
-          </div>
+  {[
+    { label: "Photos", value: photoArtefacts.length },
+    { label: "Insights", value: insightArtefacts.length },
+    { label: "Opportunities", value: opportunityArtefacts.length },
+    { label: "Decisions", value: decisionArtefacts.length },
+    { label: "Risks", value: riskArtefacts.length },
+    { label: "Recommendations", value: recommendationArtefacts.length },
+  ].map((item) => (
+    <a
+      key={item.label}
+      href="#sprint-evidence"
+      className={cx(
+        "rounded-full border px-4 py-2 text-sm font-black transition",
+        isDarkReportTheme
+          ? "border-cyan-400/30 bg-slate-950 text-slate-100 hover:border-cyan-300/50 hover:bg-slate-900"
+          : "border-slate-300 bg-slate-100 text-slate-700 hover:border-slate-400 hover:bg-slate-200 hover:text-slate-950",
+      )}
+    >
+      {item.label} {item.value}
+    </a>
+  ))}
+</div>
         </Panel>
 
         <Panel className="p-6 print:break-inside-avoid">
@@ -8277,7 +8502,7 @@ function ReportPage({ state, onNavigate }: { state: AppState; onNavigate: (page:
                         }
                         className="flex w-full items-center gap-3 px-4 py-4 text-left transition hover:bg-slate-50"
                       >
-                        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-xs font-black text-emerald-700">
+                        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-slate-300 bg-slate-100/90 text-xs font-black text-slate-800 backdrop-blur-sm">
                           {index + 1}
                         </div>
 
@@ -8330,15 +8555,17 @@ function ReportPage({ state, onNavigate }: { state: AppState; onNavigate: (page:
         <Panel className="p-6 print:break-inside-avoid">
           <div className="flex items-start justify-between gap-4">
             <div>
-              <h3 className="text-lg font-black">Sprint Journey</h3>
-              <p className="mt-1 text-sm text-slate-500">
+              <h3 className={cx("text-lg font-black", isDarkReportTheme ? "text-white" : "text-slate-950")}>
+                Sprint Journey
+              </h3>
+              <p className={cx("mt-1 text-sm", isDarkReportTheme ? "text-slate-300" : "text-slate-500")}>
                 Expand each day to review the activities completed and time allocated.
               </p>
             </div>
           </div>
 
           <div className="mt-6 grid items-start gap-5 md:grid-cols-2 2xl:grid-cols-4">
-            {sprintJourney.map((entry, index) => {
+            {sprintJourney.map((entry) => {
               const isOpen = Boolean(openJourneyDays[entry.day.id]);
               const Icon = entry.day.icon;
 
@@ -8346,38 +8573,58 @@ function ReportPage({ state, onNavigate }: { state: AppState; onNavigate: (page:
                 <section
                   key={entry.day.id}
                   className={cx(
-                    "flex flex-col rounded-[1.75rem] border bg-slate-50/80 p-6 shadow-md shadow-slate-200/70 transition hover:-translate-y-0.5 hover:bg-white hover:shadow-lg",
-                    isOpen ? "h-auto" : "h-[470px]"
+                    "group relative flex min-h-[420px] flex-col rounded-[1.75rem] border p-6 transition-all duration-300 hover:-translate-y-1",
+                    entry.day.id === "day1" &&
+                    "border-blue-200 bg-blue-50 text-slate-950 shadow-sm dark:!border-blue-400/35 dark:!bg-slate-700/45 dark:!text-slate-100 dark:shadow-[0_0_28px_rgba(96,165,250,0.10)]",
+                    entry.day.id === "day2" &&
+                    "border-emerald-200 bg-emerald-50 text-slate-950 shadow-sm dark:!border-emerald-400/35 dark:!bg-slate-700/45 dark:!text-slate-100 dark:shadow-[0_0_28px_rgba(52,211,153,0.10)]",
+                    entry.day.id === "day3" &&
+                    "border-orange-200 bg-orange-100 text-slate-950 shadow-sm dark:!border-orange-400/35 dark:!bg-slate-700/45 dark:!text-slate-100 dark:shadow-[0_0_28px_rgba(251,146,60,0.10)]",
+                    entry.day.id === "day4" &&
+                    "border-purple-200 bg-purple-50 text-slate-950 shadow-sm dark:!border-purple-400/35 dark:!bg-slate-700/45 dark:!text-slate-100 dark:shadow-[0_0_28px_rgba(192,132,252,0.10)]",
                   )}
                 >
                   <div className="space-y-4">
                     <div className="flex items-center justify-between gap-3">
                       <div
                         className={cx(
-                          "flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white ring-2",
-                          colour[entry.day.colour].text,
-                          colour[entry.day.colour].ring,
+                          "flex h-9 w-9 shrink-0 items-center justify-center rounded-full ring-2",
+                          entry.day.id === "day1" &&
+                            "bg-white text-blue-700 ring-blue-200 dark:!bg-white dark:!text-blue-700 dark:!ring-blue-200",
+                          entry.day.id === "day2" &&
+                            "bg-white text-emerald-700 ring-emerald-200 dark:!bg-white dark:!text-emerald-700 dark:!ring-emerald-200",
+                          entry.day.id === "day3" &&
+                            "bg-white text-orange-700 ring-orange-200 dark:!bg-white dark:!text-orange-700 dark:!ring-orange-200",
+                          entry.day.id === "day4" &&
+                            "bg-white text-purple-700 ring-purple-200 dark:!bg-white dark:!text-purple-700 dark:!ring-purple-200",
                         )}
                       >
                         <Icon className="h-5 w-5" />
                       </div>
 
-                      <span className="whitespace-nowrap rounded-full bg-white px-3 py-1.5 text-xs font-black text-slate-600 shadow-sm ring-1 ring-slate-200">
+                      <span
+                        className={cx(
+                          "whitespace-nowrap rounded-full border px-3 py-1.5 text-xs font-black shadow-sm",
+                          isDarkReportTheme
+                            ? "border-slate-600 bg-slate-950 text-slate-100"
+                            : "border-slate-300 bg-white text-slate-950",
+                        )}
+                      >
                         {entry.completedActivities.length} completed
                       </span>
                     </div>
 
-                    <h3 className="text-3xl font-black tracking-tight text-slate-700">
+                    <h3 className={cx("text-3xl font-black tracking-tight", isDarkReportTheme ? "text-white" : "text-slate-950")}>
                       {entry.day.label}
                     </h3>
                   </div>
 
                   <div className="mt-8 min-h-[245px]">
-                    <p className="text-xl font-black tracking-tight text-slate-700">
+                    <p className={cx("text-xl font-black tracking-tight", isDarkReportTheme ? "text-slate-100" : "text-slate-800")}>
                       {entry.day.guideLabel.replace(" Guide", "")}
                     </p>
 
-                    <p className="mt-5 text-base leading-8 text-slate-600">
+                    <p className={cx("mt-5 text-base leading-8", isDarkReportTheme ? "text-slate-300" : "text-slate-600")}>
                       {entry.day.summary}
                     </p>
                   </div>
@@ -8391,7 +8638,12 @@ function ReportPage({ state, onNavigate }: { state: AppState; onNavigate: (page:
                           [entry.day.id]: !current[entry.day.id],
                         }))
                       }
-                      className="inline-flex items-center gap-2 rounded-full bg-white px-4 py-2 text-sm font-black text-slate-600 shadow-md shadow-slate-200/80 ring-1 ring-slate-200 transition hover:text-slate-950"
+                      className={cx(
+                        "inline-flex items-center gap-2 rounded-full border px-4 py-2 text-sm font-black transition",
+                        isDarkReportTheme
+                          ? "border-slate-600 bg-slate-950 text-slate-100 hover:border-cyan-400/40 hover:bg-slate-900"
+                          : "border-slate-300 bg-white text-slate-950 shadow-md shadow-slate-200/80 hover:bg-slate-100",
+                      )}
                     >
                       {isOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
                       {isOpen ? "Collapse" : "Expand"}
@@ -8399,13 +8651,16 @@ function ReportPage({ state, onNavigate }: { state: AppState; onNavigate: (page:
                   </div>
 
                   {isOpen ? (
-                    <div className="mt-5 border-t border-slate-200 pt-5">
+                    <div className={cx("mt-5 border-t pt-5", isDarkReportTheme ? "border-slate-700" : "border-slate-200")}>
                       {entry.topThemes.length > 0 ? (
                         <div className="flex flex-wrap gap-2">
                           {entry.topThemes.map((theme) => (
                             <span
                               key={theme.type.id}
-                              className="rounded-full bg-slate-950 px-3 py-1 text-xs font-black text-white"
+                              className={cx(
+                                "rounded-full px-3 py-1 text-xs font-black",
+                                isDarkReportTheme ? "bg-slate-950 text-slate-100" : "bg-slate-950 text-white",
+                              )}
                             >
                               {theme.type.label} · {theme.count}
                             </span>
@@ -8424,15 +8679,20 @@ function ReportPage({ state, onNavigate }: { state: AppState; onNavigate: (page:
                           return (
                             <div
                               key={activity.id}
-                              className="rounded-2xl border bg-white p-4 shadow-sm"
+                              className={cx(
+                                "rounded-2xl border p-4 shadow-sm",
+                                isDarkReportTheme
+                                  ? "border-slate-700 bg-slate-950 text-slate-100"
+                                  : "border-slate-200 bg-white text-slate-950",
+                              )}
                             >
                               <div className="flex items-start justify-between gap-3">
                                 <div>
-                                  <div className="text-sm font-black text-slate-900">
+                                  <div className={cx("text-sm font-black", isDarkReportTheme ? "text-white" : "text-slate-900")}>
                                     {activity.title}
                                   </div>
 
-                                  <div className="mt-2 text-sm text-slate-500">
+                                  <div className={cx("mt-2 text-sm", isDarkReportTheme ? "text-slate-300" : "text-slate-500")}>
                                     {duration} allocated
                                   </div>
                                 </div>
@@ -8441,8 +8701,12 @@ function ReportPage({ state, onNavigate }: { state: AppState; onNavigate: (page:
                                   className={cx(
                                     "rounded-full px-3 py-1 text-[11px] font-black",
                                     isCompleted
-                                      ? "bg-emerald-100 text-emerald-700"
-                                      : "bg-slate-100 text-slate-500",
+                                      ? isDarkReportTheme
+                                        ? "bg-emerald-400/15 text-emerald-200"
+                                        : "bg-emerald-100 text-emerald-700"
+                                      : isDarkReportTheme
+                                        ? "bg-slate-800 text-slate-300"
+                                        : "bg-slate-100 text-slate-500",
                                   )}
                                 >
                                   {isCompleted ? "Completed" : "Pending"}
@@ -8460,26 +8724,145 @@ function ReportPage({ state, onNavigate }: { state: AppState; onNavigate: (page:
           </div>
         </Panel>
 
-        <div className="mt-15">
-          <div className="mb-4 flex items-end justify-between gap-4">
-            <div>
-              <div className="text-xs font-black uppercase tracking-[0.3em] text-slate-400">
-                Sprint evidence & artefacts
+        <div id="sprint-evidence" className="mt-15 scroll-mt-44">
+        <div className="mb-4 flex items-end justify-between gap-4">
+          <div>
+            <div className="text-xs font-black uppercase tracking-[0.3em] text-slate-400">
+              Sprint evidence & artefacts
+            </div>
+
+            <h3 className="mt-2 text-xl font-black text-slate-950 lg:text-2xl">
+              Captured outputs from across the sprint
+            </h3>
+
+            <p className="mt-2 max-w-3xl text-sm leading-7 text-slate-500">
+              Supporting evidence, workshop captures, notes, and artefacts
+              collected throughout the sprint journey.
+            </p>
+          </div>
+        </div>
+
+        <ReportArtefactsSection groups={artefactsByActivity} />
+
+        <div className="mt-10 border-t border-slate-200 pt-8 dark:!border-slate-700">
+          <div className="mb-5 flex flex-wrap items-start justify-between gap-4">
+            <div className="max-w-4xl flex-1">
+              <h2 className="text-xl font-black tracking-tight text-slate-950 dark:!text-white">
+                Sprint Activity Notes
+              </h2>
+
+              <p className="mt-2 text-sm leading-6 text-slate-600 dark:!text-slate-300">
+                These notes capture key discussion points, observations, decisions,
+                reflections, and facilitator outputs recorded during each sprint
+                activity across all four days. They provide additional context
+                behind the sprint artefacts, decisions, and validated outcomes.
+              </p>
+            </div>
+
+            <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-right dark:!border-slate-600 dark:!bg-slate-700/45">
+              <div className="text-[11px] font-black uppercase tracking-wide text-slate-400 dark:!text-slate-300">
+                Notes Captured
               </div>
 
-              <h3 className="mt-2 text-xl font-black text-slate-950 lg:text-2xl">
-                Captured outputs from across the sprint
-              </h3>
-
-              <p className="mt-2 max-w-3xl text-sm leading-7 text-slate-500">
-                Supporting evidence, workshop captures, notes, and artefacts
-                collected throughout the sprint journey.
-              </p>
+              <div className="mt-1 text-2xl font-black text-slate-950 dark:!text-white">
+                {notesCount}
+              </div>
             </div>
           </div>
 
-          <ReportArtefactsSection groups={artefactsByActivity} />
+          <div className="mt-5 overflow-x-auto pb-2">
+            <div className="grid min-w-[980px] gap-4 lg:min-w-0 lg:grid-cols-4">
+              {DAY_IDS.map((dayId) => {
+                const day = sprintDays.find((candidate) => candidate.id === dayId);
+                const dayNotes = Object.entries(state.notes)
+                  .filter(([key, value]) => key.startsWith(`${dayId}-`) && value.trim().length > 0)
+                  .map(([key, value]) => ({
+                    key,
+                    label: getDayAndActivityFromKey(key)?.activity.title ?? key,
+                    value,
+                  }));
+                const isExpanded = expandedNoteDays[dayId] ?? false;
+                const visibleDayNotes = isExpanded ? dayNotes : dayNotes.slice(0, 4);
+                const hiddenNoteCount = Math.max(0, dayNotes.length - visibleDayNotes.length);
+
+                return (
+                  <div
+                    key={dayId}
+                    className={cx(
+                      "rounded-2xl border p-4",
+                      dayId === "day1" && "border-blue-200 bg-blue-50 dark:!border-blue-400/35 dark:!bg-slate-700/45",
+                      dayId === "day2" && "border-emerald-200 bg-emerald-50 dark:!border-emerald-400/35 dark:!bg-slate-700/45",
+                      dayId === "day3" && "border-amber-200 bg-amber-50 dark:!border-amber-400/35 dark:!bg-slate-700/45",
+                      dayId === "day4" && "border-purple-200 bg-purple-50 dark:!border-purple-400/35 dark:!bg-slate-700/45",
+                    )}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-xs font-black uppercase tracking-wide text-slate-500 dark:!text-slate-300">
+                          {day?.label ?? dayId}
+                        </p>
+                        <h3 className="mt-1 text-sm font-black text-slate-950 dark:!text-white">
+                          {day?.title.replace(/^Day \d+:\s*/, "") ?? dayId}
+                        </h3>
+                      </div>
+
+                      <span
+                        className={cx(
+                          "shrink-0 rounded-full border px-3 py-1 text-xs font-black shadow-sm backdrop-blur-sm",
+                          dayId === "day1" && "border-blue-200 bg-blue-100/80 text-blue-700 dark:!border-blue-200 dark:!bg-white dark:!text-blue-700",
+                          dayId === "day2" && "border-emerald-200 bg-emerald-100/80 text-emerald-700 dark:!border-emerald-200 dark:!bg-white dark:!text-emerald-700",
+                          dayId === "day3" && "border-amber-200 bg-amber-100/80 text-amber-700 dark:!border-amber-200 dark:!bg-white dark:!text-amber-700",
+                          dayId === "day4" && "border-purple-200 bg-purple-100/80 text-purple-700 dark:!border-purple-200 dark:!bg-white dark:!text-purple-700",
+                        )}
+                      >
+                        {dayNotes.length} note{dayNotes.length === 1 ? "" : "s"}
+                      </span>
+                    </div>
+
+                    <div className="mt-4 space-y-3">
+                      {visibleDayNotes.length > 0 ? (
+                        <>
+                          {visibleDayNotes.map((note) => (
+                            <article key={note.key} className="rounded-xl border border-slate-200 bg-white p-3 dark:!border-slate-600 dark:!bg-slate-800/70">
+                              <p className="text-[11px] font-black uppercase tracking-wide text-slate-400 dark:!text-slate-300">
+                                {note.label}
+                              </p>
+                              <div className="mt-2 max-h-48 overflow-y-auto whitespace-pre-wrap text-sm leading-6 text-slate-700 dark:!text-slate-200">
+                                {note.value}
+                              </div>
+                            </article>
+                          ))}
+
+                          {dayNotes.length > 4 ? (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setExpandedNoteDays((current) => ({
+                                  ...current,
+                                  [dayId]: !isExpanded,
+                                }))
+                              }
+                              className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-black uppercase tracking-wide text-slate-500 transition hover:border-slate-300 hover:bg-slate-50 hover:text-slate-800 dark:!border-slate-600 dark:!bg-slate-800/70 dark:!text-slate-200 dark:hover:!border-cyan-400/50 dark:hover:!bg-slate-700/70"
+                            >
+                              {isExpanded
+                                ? "Show fewer notes"
+                                : `Show ${hiddenNoteCount} more note${hiddenNoteCount === 1 ? "" : "s"}`}
+                            </button>
+                          ) : null}
+                        </>
+                      ) : (
+                        <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-4 text-sm font-semibold text-slate-500 dark:!border-slate-600 dark:!bg-slate-800/70 dark:!text-slate-300">
+                          No notes captured for this day.
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
         </div>
+      </div>
       </div>
 
       {testingSessions.length > 0 ? (
@@ -8729,42 +9112,6 @@ function ReportPage({ state, onNavigate }: { state: AppState; onNavigate: (page:
         </Panel>
       </div>
 
-      <div className="mt-6 grid gap-4 lg:grid-cols-2">
-        <Panel className="p-6">
-          <div className="flex items-center justify-between gap-4">
-            <h2 className="text-lg font-black">How Might We</h2>
-            <span className="rounded-lg bg-slate-100 px-3 py-1 text-xs font-black text-slate-600">{state.hmws.length} saved</span>
-          </div>
-          {state.hmws.length === 0 ? (
-            <p className="mt-4 text-sm text-slate-500">No HMW questions saved yet.</p>
-          ) : (
-            <ul className="mt-4 space-y-2 text-sm text-slate-700">
-              {state.hmws.slice(0, 12).map((q) => (
-                <li key={q} className="rounded-xl border bg-white p-3">
-                  {q}
-                </li>
-              ))}
-            </ul>
-          )}
-        </Panel>
-
-        <Panel className="p-6">
-          <h2 className="text-lg font-black">Notes</h2>
-          <p className="mt-1 text-sm text-slate-500">Top notes captured during activities.</p>
-          <div className="mt-4 space-y-3">
-            {Object.entries(state.notes)
-              .filter(([, v]) => v.trim().length > 0)
-              .slice(0, 8)
-              .map(([key, value]) => (
-                <div key={key} className="rounded-2xl border bg-white p-4">
-                  <div className="text-xs font-black uppercase tracking-wide text-slate-500">{key}</div>
-                  <div className="mt-2 whitespace-pre-wrap text-sm text-slate-700">{value.slice(0, 500)}</div>
-                </div>
-              ))}
-            {notesCount === 0 ? <div className="rounded-2xl border bg-white p-6 text-sm text-slate-500">No activity notes yet.</div> : null}
-          </div>
-        </Panel>
-      </div>
     </main>
   );
 }
@@ -8784,6 +9131,7 @@ export default function DesignSprintFacilitatorApp() {
   const lastLocalSaveAtRef = useRef(0);
   const activeSessionIdRef = useRef<string | null>(null);
   const [facilitatorMode, setFacilitatorMode] = useState(false);
+  const [isDarkTheme, setIsDarkTheme] = useState(false);
   useEffect(() => {
     if (!facilitatorMode) {
       window.scrollTo({ top: 0, behavior: "smooth" });
@@ -9039,7 +9387,14 @@ export default function DesignSprintFacilitatorApp() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 font-sans text-slate-950" style={{ fontFamily: "Roboto, Arial, Helvetica, sans-serif" }}>
+    <div className={cx(
+      "min-h-screen font-sans transition-colors duration-300",
+      isDarkTheme
+        ? "dark app-dark-ui bg-[#020617] text-slate-100"
+        : "bg-slate-50 text-slate-950"
+    )}
+      style={{ fontFamily: "Roboto, Arial, Helvetica, sans-serif" }}
+      >
       <a
         href="#main"
         className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-50 focus:rounded-lg focus:bg-white focus:px-4 focus:py-2 focus:shadow"
@@ -9047,17 +9402,264 @@ export default function DesignSprintFacilitatorApp() {
         Skip to content
       </a>
 
+     {isDarkTheme ? (
+        <style jsx global>{`
+          .app-dark-ui .bg-white,
+          .app-dark-ui .bg-slate-50,
+          .app-dark-ui .bg-slate-100,
+          .app-dark-ui .bg-slate-200 {
+            background-color: rgb(30 41 59 / 0.96) !important;
+            color: rgb(248 250 252) !important;
+          }
+
+          .app-dark-ui .border-slate-100,
+          .app-dark-ui .border-slate-200,
+          .app-dark-ui .border-slate-300 {
+            border-color: rgb(100 116 139 / 0.75) !important;
+          }
+
+          .app-dark-ui .text-slate-950,
+          .app-dark-ui .text-slate-900,
+          .app-dark-ui .text-slate-800,
+          .app-dark-ui .text-black {
+            color: rgb(248 250 252) !important;
+          }
+
+          .app-dark-ui .text-slate-700,
+          .app-dark-ui .text-slate-600,
+          .app-dark-ui .text-slate-500 {
+            color: rgb(203 213 225) !important;
+          }
+
+          .app-dark-ui input,
+          .app-dark-ui textarea,
+          .app-dark-ui select {
+            background-color: rgb(15 23 42 / 0.98) !important;
+            border-color: rgb(100 116 139 / 0.85) !important;
+            color: rgb(248 250 252) !important;
+            caret-color: rgb(103 232 249) !important;
+          }
+
+          .app-dark-ui input::placeholder,
+          .app-dark-ui textarea::placeholder {
+            color: rgb(148 163 184) !important;
+          }
+
+          .app-dark-ui button:hover:not(:disabled),
+          .app-dark-ui a:hover,
+          .app-dark-ui [role="button"]:hover {
+            background-color: rgb(51 65 85 / 0.98) !important;
+            border-color: rgb(34 211 238 / 0.65) !important;
+            color: rgb(248 250 252) !important;
+          }
+
+                    .app-dark-ui .hover\:bg-slate-50:hover,
+          .app-dark-ui .hover\:bg-slate-100:hover,
+          .app-dark-ui .hover\:bg-white:hover {
+            background-color: rgb(51 65 85 / 0.98) !important;
+          }
+
+          .app-dark-ui .bg-purple-50,
+          .app-dark-ui .bg-purple-100,
+          .app-dark-ui .from-purple-50,
+          .app-dark-ui .via-white,
+          .app-dark-ui .to-white {
+            background: rgb(30 41 59 / 0.96) !important;
+            color: rgb(248 250 252) !important;
+          }
+
+          .app-dark-ui .shadow-sm,
+          .app-dark-ui .shadow-md,
+          .app-dark-ui .shadow-lg,
+          .app-dark-ui .shadow-xl {
+            box-shadow: none !important;
+          }
+
+          .app-dark-ui .text-purple-700,
+          .app-dark-ui .text-purple-600,
+          .app-dark-ui .text-purple-500 {
+            color: rgb(196 181 253) !important;
+          }
+
+          .app-dark-ui .border-purple-100,
+          .app-dark-ui .border-purple-200 {
+            border-color: rgb(88 28 135 / 0.45) !important;
+          }
+
+          .app-dark-ui .bg-purple-50,
+          .app-dark-ui .bg-purple-100 {
+            background-color: rgb(15 23 42 / 0.92) !important;
+          }
+
+          .app-dark-ui [class*="border-purple-"],
+          .app-dark-ui [class*="border-violet-"] {
+            border-color: rgb(100 116 139 / 0.75) !important;
+          }
+
+          .app-dark-ui [class*="text-purple-"],
+          .app-dark-ui [class*="text-violet-"] {
+            color: rgb(216 180 254) !important;
+          }
+
+          .app-dark-ui textarea:focus,
+          .app-dark-ui input:focus,
+          .app-dark-ui select:focus {
+            border-color: rgb(34 211 238 / 0.9) !important;
+            box-shadow: 0 0 0 3px rgb(34 211 238 / 0.2) !important;
+            outline: none !important;
+          }
+
+          .app-dark-ui textarea {
+            transition:
+              border-color 0.2s ease,
+              box-shadow 0.2s ease,
+              background-color 0.2s ease;
+          }
+
+          /* Report page dark-mode coverage */
+          .app-dark-ui .bg-gray-50,
+          .app-dark-ui .bg-gray-100,
+          .app-dark-ui .bg-neutral-50,
+          .app-dark-ui .bg-neutral-100,
+          .app-dark-ui .bg-zinc-50,
+          .app-dark-ui .bg-zinc-100 {
+            background-color: rgb(30 41 59 / 0.96) !important;
+            color: rgb(248 250 252) !important;
+          }
+
+          .app-dark-ui .border-gray-100,
+          .app-dark-ui .border-gray-200,
+          .app-dark-ui .border-gray-300,
+          .app-dark-ui .border-neutral-100,
+          .app-dark-ui .border-neutral-200,
+          .app-dark-ui .border-neutral-300,
+          .app-dark-ui .border-zinc-100,
+          .app-dark-ui .border-zinc-200,
+          .app-dark-ui .border-zinc-300 {
+            border-color: rgb(100 116 139 / 0.75) !important;
+          }
+
+          .app-dark-ui .text-gray-950,
+          .app-dark-ui .text-gray-900,
+          .app-dark-ui .text-gray-800,
+          .app-dark-ui .text-neutral-950,
+          .app-dark-ui .text-neutral-900,
+          .app-dark-ui .text-neutral-800,
+          .app-dark-ui .text-zinc-950,
+          .app-dark-ui .text-zinc-900,
+          .app-dark-ui .text-zinc-800 {
+            color: rgb(248 250 252) !important;
+          }
+
+          .app-dark-ui .text-gray-700,
+          .app-dark-ui .text-gray-600,
+          .app-dark-ui .text-gray-500,
+          .app-dark-ui .text-neutral-700,
+          .app-dark-ui .text-neutral-600,
+          .app-dark-ui .text-neutral-500,
+          .app-dark-ui .text-zinc-700,
+          .app-dark-ui .text-zinc-600,
+          .app-dark-ui .text-zinc-500 {
+            color: rgb(203 213 225) !important;
+          }
+
+          .app-dark-ui .bg-gray-900,
+          .app-dark-ui .bg-gray-800,
+          .app-dark-ui .bg-neutral-900,
+          .app-dark-ui .bg-neutral-800,
+          .app-dark-ui .bg-zinc-900,
+          .app-dark-ui .bg-zinc-800,
+          .app-dark-ui .bg-slate-900,
+          .app-dark-ui .bg-slate-800 {
+            background-color: rgb(30 41 59 / 0.96) !important;
+            color: rgb(248 250 252) !important;
+          }
+
+          .app-dark-ui .bg-gray-950,
+          .app-dark-ui .bg-neutral-950,
+          .app-dark-ui .bg-zinc-950,
+          .app-dark-ui .bg-slate-950,
+          .app-dark-ui .bg-black {
+            background-color: rgb(2 6 23 / 0.98) !important;
+            color: rgb(248 250 252) !important;
+          }
+
+          .app-dark-ui .bg-white\/5,
+          .app-dark-ui .bg-white\/10,
+          .app-dark-ui .bg-white\/20,
+          .app-dark-ui .bg-black\/5,
+          .app-dark-ui .bg-black\/10,
+          .app-dark-ui .bg-black\/20 {
+            background-color: rgb(51 65 85 / 0.88) !important;
+            color: rgb(248 250 252) !important;
+          }
+
+          .app-dark-ui .border-white\/5,
+          .app-dark-ui .border-white\/10,
+          .app-dark-ui .border-white\/20,
+          .app-dark-ui .border-black\/5,
+          .app-dark-ui .border-black\/10,
+          .app-dark-ui .border-black\/20 {
+            border-color: rgb(100 116 139 / 0.7) !important;
+          }
+
+          .app-dark-ui .bg-blue-50,
+          .app-dark-ui .bg-blue-100,
+          .app-dark-ui .bg-emerald-50,
+          .app-dark-ui .bg-emerald-100,
+          .app-dark-ui .bg-orange-50,
+          .app-dark-ui .bg-orange-100,
+          .app-dark-ui .bg-amber-50,
+          .app-dark-ui .bg-amber-100 {
+            background-color: rgb(51 65 85 / 0.96) !important;
+            color: rgb(248 250 252) !important;
+          }
+
+          .app-dark-ui .text-blue-700,
+          .app-dark-ui .text-blue-600,
+          .app-dark-ui .text-emerald-700,
+          .app-dark-ui .text-emerald-600,
+          .app-dark-ui .text-orange-700,
+          .app-dark-ui .text-orange-600,
+          .app-dark-ui .text-amber-700,
+          .app-dark-ui .text-amber-600 {
+            color: rgb(224 242 254) !important;
+          }
+
+          .app-dark-ui .border-blue-100,
+          .app-dark-ui .border-blue-200,
+          .app-dark-ui .border-emerald-100,
+          .app-dark-ui .border-emerald-200,
+          .app-dark-ui .border-orange-100,
+          .app-dark-ui .border-orange-200,
+          .app-dark-ui .border-amber-100,
+          .app-dark-ui .border-amber-200 {
+            border-color: rgb(100 116 139 / 0.75) !important;
+          }
+
+          .app-dark-ui .rounded-full.bg-white,
+          .app-dark-ui .rounded-full.bg-slate-100,
+          .app-dark-ui .rounded-full.bg-slate-200 {
+            background-color: rgb(226 232 240) !important;
+            color: rgb(15 23 42) !important;
+            border-color: rgb(203 213 225) !important;
+          }
+        `}</style>
+      ) : null}
+
       {page !== "participant" ? 
       <Header
-        page={page}
-        onNavigate={onNavigate}
-        currentDay={state.currentDay}
-        sprintName={state.sprintName}
-        facilitatorMode={facilitatorMode}
-        setFacilitatorMode={setFacilitatorMode}
-      /> : null}
+      page={page}
+      onNavigate={onNavigate}
+      currentDay={state.currentDay}
+      sprintName={state.sprintName}
+      facilitatorMode={facilitatorMode}
+      setFacilitatorMode={setFacilitatorMode}
+      isDarkTheme={isDarkTheme}
+      setIsDarkTheme={setIsDarkTheme}
+    /> : null}
 
-      <div id="main">
+      <div id="main" className="transition-colors duration-300">
         {page === "dashboard" ? (
           <Dashboard
             state={state}

@@ -129,3 +129,50 @@
     @apply font-sans;
   }
 }
+
+/* =========================================
+   GLOBAL DARK THEME
+========================================= */
+
+.app-dark-ui {
+  background: #020617;
+  color: #e2e8f0;
+}
+
+.app-dark-ui .bg-white,
+.app-dark-ui .bg-slate-50,
+.app-dark-ui .bg-slate-100,
+.app-dark-ui .bg-slate-200 {
+  background-color: #111827 !important;
+  color: #e2e8f0 !important;
+}
+
+.app-dark-ui .text-slate-950,
+.app-dark-ui .text-slate-900,
+.app-dark-ui .text-slate-800 {
+  color: #f8fafc !important;
+}
+
+.app-dark-ui .text-slate-700,
+.app-dark-ui .text-slate-600,
+.app-dark-ui .text-slate-500 {
+  color: #cbd5e1 !important;
+}
+
+.app-dark-ui .border-slate-200,
+.app-dark-ui .border-slate-100 {
+  border-color: rgba(148, 163, 184, 0.18) !important;
+}
+
+.app-dark-ui input,
+.app-dark-ui textarea,
+.app-dark-ui select {
+  background: #0f172a !important;
+  color: #f8fafc !important;
+  border-color: rgba(148, 163, 184, 0.2) !important;
+}
+
+.app-dark-ui button.bg-white {
+  background: #1e293b !important;
+  color: #f8fafc !important;
+}
