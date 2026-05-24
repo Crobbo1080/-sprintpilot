@@ -7136,10 +7136,40 @@ function ReportArtefactsSection({
 }) {
   const totalArtefacts = groups.reduce((sum, group) => sum + group.artefacts.length, 0);
   const [openArtefactDays, setOpenArtefactDays] = useState<Partial<Record<DayId | "unknown", boolean>>>({});
+  const [previewArtefact, setPreviewArtefact] = useState<Artefact | null>(null);
 
+  // Updated dayGroups logic as per instructions
   const dayGroups = sprintDays
     .map((day) => {
-      const activityGroups = groups.filter((group) => group.context?.day.id === day.id);
+      const scheduledActivityGroups = day.activities
+        .map((activity) => {
+          const key = activityKey(day.id, activity.id);
+          const matchingGroup = groups.find((group) => group.key === key);
+
+          if (!matchingGroup || matchingGroup.artefacts.length === 0) return null;
+
+          return {
+            ...matchingGroup,
+            context: { day, activity },
+          };
+        })
+        .filter(
+          (
+            group,
+          ): group is {
+            key: string;
+            artefacts: Artefact[];
+            context: { day: SprintDay; activity: Activity };
+          } => Boolean(group),
+        );
+
+      const unscheduledActivityGroups = groups.filter(
+        (group) =>
+          group.context?.day.id === day.id &&
+          !day.activities.some((activity) => activityKey(day.id, activity.id) === group.key),
+      );
+
+      const activityGroups = [...scheduledActivityGroups, ...unscheduledActivityGroups];
       const artefactCount = activityGroups.reduce((sum, group) => sum + group.artefacts.length, 0);
 
       return {
@@ -7267,21 +7297,38 @@ function ReportArtefactsSection({
                             <div className="mt-4">
                               <h4 className="text-sm font-black">Photos</h4>
                               <div className="mt-2 grid gap-3 md:grid-cols-2">
-                                {photoArtefacts.map((artefact) => (
-                                  <div key={artefact.id} className="overflow-hidden rounded-xl border bg-white">
-                                    {artefact.dataUrl ? (
-                                      <img
-                                        src={artefact.publicUrl ?? artefact.dataUrl}
-                                        alt={artefact.caption || artefact.name}
-                                        className="h-40 w-full object-cover"
-                                      />
-                                    ) : null}
-                                    <div className="p-3">
-                                      <div className="text-sm font-black">{artefact.name}</div>
-                                      <p className="mt-1 text-sm text-slate-500">{artefact.caption || "No caption added."}</p>
-                                    </div>
-                                  </div>
-                                ))}
+                                {photoArtefacts.map((artefact) => {
+                                  const imageSrc = getArtefactImageSrc(artefact);
+
+                                  return (
+                                    <figure key={artefact.id} className="overflow-hidden rounded-xl border bg-white">
+                                      {imageSrc ? (
+                                        <button
+                                          type="button"
+                                          onClick={() => setPreviewArtefact(artefact)}
+                                          className="block w-full overflow-hidden text-left focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2"
+                                          aria-label={`Preview ${artefact.caption || artefact.name}`}
+                                        >
+                                          <img
+                                            src={imageSrc}
+                                            alt={artefact.caption || artefact.name}
+                                            className="h-48 w-full object-cover transition duration-200 hover:scale-[1.02]"
+                                            loading="lazy"
+                                          />
+                                        </button>
+                                      ) : (
+                                        <div className="flex h-48 w-full items-center justify-center bg-slate-100 text-xs font-bold text-slate-500">
+                                          Image unavailable
+                                        </div>
+                                      )}
+
+                                      <figcaption className="p-3">
+                                        <div className="text-sm font-black">{artefact.name}</div>
+                                        <p className="mt-1 text-sm text-slate-500">{artefact.caption || "No caption added."}</p>
+                                      </figcaption>
+                                    </figure>
+                                  );
+                                })}
                               </div>
                             </div>
                           ) : null}
@@ -7329,6 +7376,51 @@ function ReportArtefactsSection({
           })}
         </div>
       )}
+      {previewArtefact ? (() => {
+        const previewSrc = getArtefactImageSrc(previewArtefact);
+
+        return (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Artefact image preview"
+          >
+            <div className="flex max-h-[92vh] w-full max-w-5xl flex-col overflow-hidden rounded-3xl border border-slate-700 bg-white shadow-2xl dark:!bg-slate-900 dark:!text-slate-100">
+              <div className="flex items-start justify-between gap-4 border-b border-slate-200 p-4 dark:!border-slate-700">
+                <div>
+                  <h3 className="text-lg font-black text-slate-950 dark:!text-white">{previewArtefact.name}</h3>
+                  <p className="mt-1 text-sm text-slate-500 dark:!text-slate-300">
+                    {previewArtefact.caption || "No caption added."}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setPreviewArtefact(null)}
+                  className="rounded-full border border-slate-200 bg-white p-2 text-slate-600 transition hover:bg-slate-100 dark:!border-slate-600 dark:!bg-slate-800 dark:!text-slate-100 dark:hover:!bg-slate-700"
+                  aria-label="Close image preview"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+
+              <div className="min-h-0 flex-1 overflow-auto bg-slate-950 p-4">
+                {previewSrc ? (
+                  <img
+                    src={previewSrc}
+                    alt={previewArtefact.caption || previewArtefact.name}
+                    className="mx-auto max-h-[72vh] w-auto max-w-full rounded-2xl object-contain"
+                  />
+                ) : (
+                  <div className="flex min-h-[50vh] items-center justify-center rounded-2xl border border-dashed border-slate-600 text-sm font-bold text-slate-300">
+                    Image unavailable
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        );
+      })() : null}
     </Panel>
   );
 }
@@ -8101,16 +8193,6 @@ function ReportPage({ state, onNavigate }: { state: AppState; onNavigate: (page:
         <div>
           <div className="flex flex-wrap items-center gap-3">
             <h1 className={cx("text-3xl font-black", isDarkReportTheme ? "text-white" : "text-slate-950")}>Sprint Report</h1>
-            <span
-              className={cx(
-                "rounded-full border px-3 py-1 text-xs font-black uppercase tracking-wide",
-                isDarkReportTheme
-                  ? "border-cyan-400/30 bg-cyan-400/10 text-cyan-200"
-                  : "border-slate-200 bg-slate-100 text-slate-600",
-              )}
-            >
-              Day {progress.count}/{progress.total}
-            </span>
           </div>
           <p className={cx("mt-1", isDarkReportTheme ? "text-slate-400" : "text-slate-500")}>Generated from your captured sprint setup, activity progress, HMWs, and notes.</p>
         </div>
