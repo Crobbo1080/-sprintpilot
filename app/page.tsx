@@ -1981,7 +1981,7 @@ async function fetchCloudSessions(): Promise<SprintSession[]> {
 
   const { data, error } = await supabase
     .from("sprint_sessions")
-    .select("id,name,status,state,session_data,created_at,updated_at")
+    .select("id,name,status,state,created_at,updated_at")
     .order("updated_at", { ascending: false });
 
   if (error) {
@@ -1997,7 +1997,7 @@ async function fetchCloudSessionById(sessionId: string): Promise<SprintSession |
 
   const { data, error } = await supabase
     .from("sprint_sessions")
-    .select("id,name,status,state,session_data,created_at,updated_at")
+    .select("id,name,status,state,created_at,updated_at")
     .eq("id", sessionId)
     .single();
 
@@ -2018,10 +2018,10 @@ async function createCloudSession(state: AppState, status: SprintSessionStatus =
       id: createSessionId(),
       name: state.sprintName || "Untitled sprint",
       status,
-      session_data: state,
+      state,
       updated_at: new Date().toISOString(),
     })
-    .select("id,name,status,session_data,created_at,updated_at")
+    .select("id,name,status,state,created_at,updated_at")
     .single();
 
   if (error) {
@@ -2035,17 +2035,21 @@ async function createCloudSession(state: AppState, status: SprintSessionStatus =
 async function updateCloudSession(sessionId: string, state: AppState, status?: SprintSessionStatus): Promise<void> {
   if (!supabase) return;
 
-  const payload: { name: string; session_data: AppState; updated_at: string; status?: SprintSessionStatus } = {
+  const payload = {
+    id: sessionId,
     name: state.sprintName || "Untitled sprint",
-    session_data: state,
+    status: status ?? "live",
+    state,
     updated_at: new Date().toISOString(),
   };
 
-  if (status) payload.status = status;
+  const { error } = await supabase
+    .from("sprint_sessions")
+    .upsert(payload, { onConflict: "id" });
 
-  const { error } = await supabase.from("sprint_sessions").update(payload).eq("id", sessionId);
-
-  if (error) console.error("Failed to update cloud sprint session", error);
+  if (error) {
+    console.error("Failed to upsert cloud sprint session", error);
+  }
 }
 
 async function syncLocalSessionsToCloud(localSessions: SprintSession[]): Promise<SprintSession[]> {
@@ -2054,18 +2058,40 @@ async function syncLocalSessionsToCloud(localSessions: SprintSession[]): Promise
   const syncedSessions = await Promise.all(
     localSessions.map(async (session) => {
       const cloudId = session.cloudId ?? session.id;
-      const now = new Date(session.updatedAt || Date.now()).toISOString();
+      const localUpdatedAt = session.updatedAt || Date.now();
+      const localUpdatedIso = new Date(localUpdatedAt).toISOString();
+
+      const { data: existingCloudSession, error: fetchError } = await supabase!
+        .from("sprint_sessions")
+        .select("id,name,status,state,created_at,updated_at")
+        .eq("id", cloudId)
+        .maybeSingle();
+
+      if (fetchError) {
+        console.error("Failed to check cloud sprint session before sync", fetchError);
+      }
+
+      if (existingCloudSession) {
+        const cloudUpdatedAt = new Date(existingCloudSession.updated_at).getTime();
+
+        if (cloudUpdatedAt > localUpdatedAt) {
+          return cloudRowToSprintSession(existingCloudSession as CloudSprintSessionRow);
+        }
+      }
 
       const { data, error } = await supabase!
         .from("sprint_sessions")
-        .upsert({
-          id: cloudId,
-          name: session.name || session.state.sprintName || "Untitled sprint",
-          status: session.status ?? "live",
-          session_data: session.state,
-          updated_at: now,
-        })
-        .select("id,name,status,session_data,created_at,updated_at")
+        .upsert(
+          {
+            id: cloudId,
+            name: session.name || session.state.sprintName || "Untitled sprint",
+            status: session.status ?? "live",
+            state: session.state,
+            updated_at: localUpdatedIso,
+          },
+          { onConflict: "id" },
+        )
+        .select("id,name,status,state,created_at,updated_at")
         .single();
 
       if (error || !data) {
@@ -2191,10 +2217,11 @@ function saveSessionState(sessionId: string, state: AppState) {
 
   const sessions = readStoredSessions();
   const existingSession = sessions.find((session) => session.id === sessionId);
+  const cloudId = existingSession?.cloudId ?? sessionId;
 
   const updatedSession = createSprintSession(state, {
     id: sessionId,
-    cloudId: existingSession?.cloudId,
+    cloudId,
     status: existingSession?.status ?? "live",
     createdAt: existingSession?.createdAt,
     updatedAt: Date.now(),
@@ -2204,12 +2231,10 @@ function saveSessionState(sessionId: string, state: AppState) {
     ? sessions.map((session) => (session.id === sessionId ? updatedSession : session))
     : [updatedSession, ...sessions];
 
-    writeStoredSessions(nextSessions);
-    window.localStorage.setItem(SPRINTPILOT_ACTIVE_SESSION_KEY, sessionId);
-    
-    if (existingSession?.cloudId) {
-      void updateCloudSession(existingSession.cloudId, state);
-    }
+  writeStoredSessions(nextSessions);
+  window.localStorage.setItem(SPRINTPILOT_ACTIVE_SESSION_KEY, sessionId);
+
+  void updateCloudSession(cloudId, state, updatedSession.status);
 }
 
 function activityDurationToSeconds(duration: string) {
@@ -2947,10 +2972,25 @@ function RepositoryPage({
   const [sessions, setSessions] = useState<SprintSession[]>([]);
 
   const refreshSessions = async () => {
-    const localSessions = readStoredSessions();
-    const syncedLocalSessions = localSessions.length > 0 ? await syncLocalSessionsToCloud(localSessions) : [];
     const cloudSessions = await fetchCloudSessions();
-    const mergedSessions = [...cloudSessions, ...syncedLocalSessions].filter(
+    const localSessions = readStoredSessions();
+
+    const cloudIds = new Set(cloudSessions.map((s) => s.id));
+
+    const newerLocalSessions = localSessions.filter((localSession) => {
+      const cloudMatch = cloudSessions.find((cloudSession) => cloudSession.id === localSession.id);
+
+      if (!cloudMatch) return true;
+
+      return localSession.updatedAt > cloudMatch.updatedAt;
+    });
+
+    const syncedLocalSessions =
+      newerLocalSessions.length > 0
+        ? await syncLocalSessionsToCloud(newerLocalSessions)
+        : [];
+
+    const mergedSessions = [...syncedLocalSessions, ...cloudSessions].filter(
       (session, index, all) => all.findIndex((item) => item.id === session.id) === index,
     );
 
@@ -5523,9 +5563,9 @@ function FormattedArtefactText({ text }: { text: string }) {
           return (
             <div
               key={index}
-              className="flex items-start gap-3 rounded-2xl border border-purple-100 bg-purple-50/60 px-4 py-3 text-slate-700"
+              className="flex items-start gap-3 rounded-2xl border border-slate-100 bg-purple-800/10 px-4 py-3 text-slate-200 dark:border-slate-700 dark:bg-slate-700/80 dark:text-slate-200"
             >
-              <span className="mt-[0.45rem] text-xs text-purple-500">●</span>
+              <span className="mt-[0.45rem] text-xs text-blue-500">●</span>
         
               <div className="min-w-0 flex-1 leading-8 text-slate-700">
                 <InlineFormattedText text={trimmed.replace(/^\-\s*/, "")} />
@@ -5783,7 +5823,9 @@ function ArtefactCapture({
     for (const file of files) {
       if (!file.type.startsWith("image/")) continue;
 
-      const path = `artefacts/${createClientId("artefact")}-${file.name}`;
+      const artefactId = createClientId("artefact");
+      const safeFileName = file.name.replace(/[^a-zA-Z0-9._-]/g, "-");
+      const path = `artefacts/${artefactId}-${safeFileName}`;
 
       if (!supabase) {
         console.error("Supabase is not configured");
@@ -5808,7 +5850,7 @@ function ArtefactCapture({
         type: "artefact/add",
         key: activityKeyValue,
         artefact: {
-          id: `${activityKeyValue}-${Date.now()}-${file.name}`,
+          id: artefactId,
           activityKey: activityKeyValue,
           type: "photo",
           name: file.name,
@@ -7750,10 +7792,21 @@ function getArtefactImageSrc(artefact: Artefact) {
 
 function ReportPage({ state, onNavigate }: { state: AppState; onNavigate: (page: Page) => void }) {
   const isPrintReportView =
-  typeof window !== "undefined" &&
-  (new URLSearchParams(window.location.search).get("printReport") === "true" ||
-    /^\/report\/[^/]+\/print$/.test(window.location.pathname));
-  const [isDarkReportTheme, setIsDarkReportTheme] = useState(false);
+    typeof window !== "undefined" &&
+    (new URLSearchParams(window.location.search).get("printReport") === "true" ||
+      /^\/report\/[^/]+\/print$/.test(window.location.pathname));
+  const [isDarkReportTheme, setIsDarkReportTheme] = useState(() => {
+    if (typeof window === "undefined") return false;
+
+    const sharedTheme = new URLSearchParams(window.location.search).get("theme");
+    if (sharedTheme === "dark") return true;
+    if (sharedTheme === "light") return false;
+
+    return (
+      document.documentElement.classList.contains("dark") ||
+      document.body.classList.contains("app-dark-ui")
+    );
+  });
   const [openJourneyDays, setOpenJourneyDays] = useState<Partial<Record<DayId, boolean>>>({});
   const [expandedSections, setExpandedSections] = useState<string[]>([]);
   const [openTestingSessions, setOpenTestingSessions] = useState<Record<string, boolean>>({});
@@ -7761,7 +7814,14 @@ function ReportPage({ state, onNavigate }: { state: AppState; onNavigate: (page:
   const [isShareMenuOpen, setIsShareMenuOpen] = useState(false);
   const [shareStatusMessage, setShareStatusMessage] = useState("");
   const [expandedNoteDays, setExpandedNoteDays] =
-  useState<Partial<Record<DayId, boolean>>>({});
+    useState<Partial<Record<DayId, boolean>>>({});
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    document.documentElement.classList.toggle("dark", isDarkReportTheme);
+    document.body.classList.toggle("app-dark-ui", isDarkReportTheme);
+  }, [isDarkReportTheme]);
 
   const allKeys = useMemo(() => {
     const keys: string[] = [];
@@ -7772,18 +7832,20 @@ function ReportPage({ state, onNavigate }: { state: AppState; onNavigate: (page:
     return keys;
   }, []);
   const isSharedReportView =
-  typeof window !== "undefined" &&
-  window.location.pathname.startsWith("/report/");
+    typeof window !== "undefined" &&
+    window.location.pathname.startsWith("/report/");
+
+    const isReportView = true;
 
   const activeReportSessionId =
-  typeof window !== "undefined"
-    ? window.localStorage.getItem("sprintpilot.activeSessionId.v1")
-    : null;
+    typeof window !== "undefined"
+      ? window.localStorage.getItem("sprintpilot.activeSessionId.v1")
+      : null;
 
   const shareReportUrl =
-  activeReportSessionId && typeof window !== "undefined"
-    ? `${window.location.origin}/report/${activeReportSessionId}`
-    : "";
+    activeReportSessionId && typeof window !== "undefined"
+      ? `${window.location.origin}/report/${activeReportSessionId}?theme=${isDarkReportTheme ? "dark" : "light"}`
+      : "";
 
   const progress = useMemo(() => {
     const progressed = allKeys.filter(
@@ -7946,7 +8008,7 @@ function ReportPage({ state, onNavigate }: { state: AppState; onNavigate: (page:
     <main
       className={cx(
         "mx-auto min-h-screen max-w-[1280px] px-6 py-8 transition-colors duration-300 print:bg-white print:text-slate-950",
-        "bg-slate-50 text-slate-950 dark:!bg-[#020617] dark:!text-slate-100",
+        "bg-slate-50 text-slate-950 dark:!bg-slate-950 dark:!text-slate-100",
       )}
     >
       <style jsx global>{`
@@ -8056,6 +8118,13 @@ function ReportPage({ state, onNavigate }: { state: AppState; onNavigate: (page:
         <div className="relative flex flex-wrap items-center gap-2" data-print-hidden="true">
           <Button
             variant="secondary"
+            onClick={() => setIsDarkReportTheme((current) => !current)}
+            aria-label="Toggle report theme"
+          >
+            {isDarkReportTheme ? "Light Theme" : "Dark Theme"}
+          </Button>
+          <Button
+            variant="secondary"
             onClick={() => setIsShareMenuOpen((current) => !current)}
             aria-label="Open report sharing options"
             aria-expanded={isShareMenuOpen}
@@ -8064,7 +8133,7 @@ function ReportPage({ state, onNavigate }: { state: AppState; onNavigate: (page:
           </Button>
 
           {isShareMenuOpen ? (
-            <div className="absolute right-0 top-12 z-50 w-80 rounded-3xl border border-slate-200 bg-white p-3 shadow-2xl shadow-slate-200/80">
+            <div className="absolute right-0 top-12 z-50 w-80 rounded-3xl border border-slate-200 bg-white p-3 shadow-lg shadow-black/10 dark:!border-slate-700/60 dark:!bg-slate-900/95 dark:!text-slate-100 dark:!shadow-none">
               <div className="px-2 pb-2">
                 <p className="text-xs font-black uppercase tracking-wide text-slate-500">Share options</p>
                 <p className="mt-1 text-xs leading-5 text-slate-500">
@@ -8215,7 +8284,7 @@ function ReportPage({ state, onNavigate }: { state: AppState; onNavigate: (page:
         className={cx(
           "mt-6 overflow-hidden print:break-inside-avoid",
           isDarkReportTheme
-            ? "border border-cyan-400/20 bg-gradient-to-br from-slate-900 via-slate-950 to-black text-slate-100 shadow-[0_0_50px_rgba(34,211,238,0.12)]"
+            ? "border border-slate-700/40 bg-[#1e293b] text-slate-100 shadow-none"
             : "border border-slate-200 bg-gradient-to-br from-slate-50 via-white to-slate-100 shadow-xl shadow-slate-200/60",
         )}
       >
@@ -8232,7 +8301,7 @@ function ReportPage({ state, onNavigate }: { state: AppState; onNavigate: (page:
               Executive summary
             </div>
 
-            <h2 className={cx("mt-5 text-3xl font-black leading-tight lg:text-4xl", isDarkReportTheme ? "text-white" : "text-slate-950")}>
+            <h2 className="mt-5 text-2xl font-black leading-tight text-slate-950 dark:!text-white lg:text-3xl">
               Sprint outcomes and strategic direction
             </h2>
 
@@ -8254,57 +8323,57 @@ function ReportPage({ state, onNavigate }: { state: AppState; onNavigate: (page:
               </p>
             </div>
 
-            <div className="mt-6 grid gap-3 sm:grid-cols-3">
-              <div
-                className={cx(
-                  "rounded-2xl border p-4 backdrop-blur-sm",
-                  isDarkReportTheme
-  ? "border-slate-700 bg-slate-950 text-slate-100"
-  : "border-slate-200 bg-white text-slate-950",
-                )}
-              >
-                <div className={cx("text-3xl font-black", isDarkReportTheme ? "text-white" : "text-slate-950")}>{executiveSummary.decisions}</div>
-                <div className={cx("mt-1 text-xs font-black uppercase tracking-wide", isDarkReportTheme ? "text-slate-300" : "text-slate-500")}>
-                  Key decisions
+              <div className="mt-6 grid gap-3 sm:grid-cols-3">
+                <div
+                  className={cx(
+                    "rounded-2xl border p-4 backdrop-blur-sm",
+                    isDarkReportTheme
+                      ? "border-slate-700/70 !bg-slate-800/70 text-slate-100"
+                      : "border-slate-200 bg-white text-slate-950",
+                  )}
+                >
+                  <div className={cx("text-3xl font-black", isDarkReportTheme ? "text-white" : "text-slate-950")}>{executiveSummary.decisions}</div>
+                  <div className={cx("mt-1 text-xs font-black uppercase tracking-wide", isDarkReportTheme ? "text-slate-300" : "text-slate-500")}>
+                    Key decisions
+                  </div>
                 </div>
-              </div>
 
-              <div
-                className={cx(
-                  "rounded-2xl border p-4 backdrop-blur-sm",
-                  isDarkReportTheme
-  ? "border-slate-700 bg-slate-950 text-slate-100"
-  : "border-slate-200 bg-white text-slate-950",
-                )}
-              >
-                <div className={cx("text-3xl font-black", isDarkReportTheme ? "text-white" : "text-slate-950")}>{executiveSummary.recommendations}</div>
-                <div className={cx("mt-1 text-xs font-black uppercase tracking-wide", isDarkReportTheme ? "text-slate-300" : "text-slate-500")}>
-                  Recommendations
+                <div
+                  className={cx(
+                    "rounded-2xl border p-4 backdrop-blur-sm",
+                    isDarkReportTheme
+                      ? "border-slate-700/70 !bg-slate-800/70 text-slate-100"
+                      : "border-slate-200 bg-white text-slate-950",
+                  )}
+                >
+                  <div className={cx("text-3xl font-black", isDarkReportTheme ? "text-white" : "text-slate-950")}>{executiveSummary.recommendations}</div>
+                  <div className={cx("mt-1 text-xs font-black uppercase tracking-wide", isDarkReportTheme ? "text-slate-300" : "text-slate-500")}>
+                    Recommendations
+                  </div>
                 </div>
-              </div>
 
-              <div
-                className={cx(
-                  "rounded-2xl border p-4 backdrop-blur-sm",
-                  isDarkReportTheme
-  ? "border-slate-700 bg-slate-950 text-slate-100"
-  : "border-slate-200 bg-white text-slate-950",
-                )}
-              >
-                <div className={cx("text-3xl font-black", isDarkReportTheme ? "text-white" : "text-slate-950")}>{executiveSummary.risks}</div>
-                <div className={cx("mt-1 text-xs font-black uppercase tracking-wide", isDarkReportTheme ? "text-slate-300" : "text-slate-500")}>
-                  Risks identified
+                <div
+                  className={cx(
+                    "rounded-2xl border p-4 backdrop-blur-sm",
+                    isDarkReportTheme
+                      ? "border-slate-700/70 !bg-slate-800/70 text-slate-100"
+                      : "border-slate-200 bg-white text-slate-950",
+                  )}
+                >
+                  <div className={cx("text-3xl font-black", isDarkReportTheme ? "text-white" : "text-slate-950")}>{executiveSummary.risks}</div>
+                  <div className={cx("mt-1 text-xs font-black uppercase tracking-wide", isDarkReportTheme ? "text-slate-300" : "text-slate-500")}>
+                    Risks identified
+                  </div>
                 </div>
               </div>
-            </div>
           </div>
 
           <div
             className={cx(
               "rounded-[2rem] border p-6 backdrop-blur-sm",
               isDarkReportTheme
-              ? "border-slate-700 bg-slate-950 text-slate-100"
-              : "border-slate-200 bg-slate-100 text-slate-950"
+                ? "border-slate-700/70 !bg-slate-800/70 text-slate-100"
+                : "border-slate-200 bg-slate-100 text-slate-950"
             )}
           >
             <div className={cx("text-xs font-black uppercase tracking-wide", isDarkReportTheme ? "text-slate-300" : "text-slate-500")}>
@@ -8315,7 +8384,7 @@ function ReportPage({ state, onNavigate }: { state: AppState; onNavigate: (page:
               className={cx(
                 "mt-4 h-4 w-full overflow-hidden rounded-full border",
                 isDarkReportTheme
-                  ? "border-slate-700 bg-slate-950"
+                  ? "border-slate-600 bg-slate-800/70"
                   : "border-slate-200 bg-slate-200/80",
               )}
             >
@@ -8327,9 +8396,7 @@ function ReportPage({ state, onNavigate }: { state: AppState; onNavigate: (page:
                   backgroundImage:
                     "linear-gradient(90deg, #22d3ee 0%, #60a5fa 25%, #c084fc 55%, #e879f9 75%, #a78bfa 100%)",
                   backgroundColor: "#22d3ee",
-                  boxShadow: isDarkReportTheme
-                    ? "0 0 18px rgba(34, 211, 238, 0.35)"
-                    : "none",
+                  boxShadow: "none",
                 }}
               />
             </div>
@@ -8352,19 +8419,19 @@ function ReportPage({ state, onNavigate }: { state: AppState; onNavigate: (page:
                     "rounded-2xl border p-4",
                     entry.day.id === "day1" &&
                       (isDarkReportTheme
-                        ? "border-blue-400/30 bg-gradient-to-br from-blue-500/20 via-slate-900 to-slate-950"
+                        ? "border-blue-400/45 !bg-slate-800/60"
                         : "border-blue-100 bg-gradient-to-br from-blue-50 via-white to-white"),
                     entry.day.id === "day2" &&
                       (isDarkReportTheme
-                        ? "border-emerald-400/30 bg-gradient-to-br from-emerald-500/20 via-slate-900 to-slate-950"
+                        ? "border-emerald-400/45 !bg-slate-800/60"
                         : "border-emerald-100 bg-gradient-to-br from-emerald-50 via-white to-white"),
                     entry.day.id === "day3" &&
                       (isDarkReportTheme
-                        ? "border-amber-400/30 bg-gradient-to-br from-amber-500/20 via-slate-900 to-slate-950"
+                        ? "border-amber-400/45 !bg-slate-800/60"
                         : "border-amber-100 bg-gradient-to-br from-amber-50 via-white to-white"),
                     entry.day.id === "day4" &&
                       (isDarkReportTheme
-                        ? "border-purple-400/30 bg-gradient-to-br from-purple-500/20 via-slate-900 to-slate-950"
+                        ? "border-purple-400/45 !bg-slate-800/60"
                         : "border-purple-100 bg-gradient-to-br from-purple-50 via-white to-white"),
                   )}
                 >
@@ -8380,7 +8447,7 @@ function ReportPage({ state, onNavigate }: { state: AppState; onNavigate: (page:
                       className={cx(
                         "rounded-full border px-3 py-1 text-[11px] font-black shadow-sm",
                         isDarkReportTheme
-                          ? "border-cyan-400/30 bg-cyan-400/10 text-cyan-100"
+                          ? "border-slate-300 !bg-slate-950 !text-white"
                           : "border-slate-300 bg-slate-100 text-slate-700",
                       )}
                     >
@@ -8426,16 +8493,17 @@ function ReportPage({ state, onNavigate }: { state: AppState; onNavigate: (page:
             </div>
           </div>
 
-          <div className="mt-5 rounded-2xl border bg-slate-950 p-5 text-white">
-            <div className="text-xs font-black uppercase tracking-wide text-white/60">
-              Sprint narrative
+          <div className="mt-5 rounded-2xl border border-slate-200 bg-slate-50 p-5 text-slate-700 shadow-inner dark:!border-slate-600 dark:!bg-slate-700/45 dark:!text-slate-200">
+          <div className="text-xs font-black uppercase tracking-wide text-slate-500 dark:!text-slate-300">
+                Sprint narrative
+              </div>
+
+              <p className="mt-3 text-sm leading-7 text-slate-700 dark:!text-slate-200">
+                This sprint explored opportunities around {state.challenge || "the stated challenge"}. Throughout the sprint,
+                the team generated ideas, aligned around a preferred direction, captured evidence, and documented risks,
+                opportunities, decisions, and recommendations to support future product or service decisions.
+              </p>
             </div>
-            <p className="mt-3 text-sm leading-7 text-white/80">
-              This sprint explored opportunities around {state.challenge || "the stated challenge"}. Throughout the sprint,
-              the team generated ideas, aligned around a preferred direction, captured evidence, and documented risks,
-              opportunities, decisions, and recommendations to support future product or service decisions.
-            </p>
-          </div>
 
           <div className="mt-5 flex flex-wrap gap-3">
   {[
@@ -8452,7 +8520,7 @@ function ReportPage({ state, onNavigate }: { state: AppState; onNavigate: (page:
       className={cx(
         "rounded-full border px-4 py-2 text-sm font-black transition",
         isDarkReportTheme
-          ? "border-cyan-400/30 bg-slate-950 text-slate-100 hover:border-cyan-300/50 hover:bg-slate-900"
+          ? "border-slate-300 bg-white text-slate-900 hover:border-slate-200 hover:bg-slate-100"
           : "border-slate-300 bg-slate-100 text-slate-700 hover:border-slate-400 hover:bg-slate-200 hover:text-slate-950",
       )}
     >
@@ -8500,20 +8568,20 @@ function ReportPage({ state, onNavigate }: { state: AppState; onNavigate: (page:
                               : [...current, accordionId],
                           )
                         }
-                        className="flex w-full items-center gap-3 px-4 py-4 text-left transition hover:bg-slate-50"
+                        className="flex w-full items-center gap-3 px-4 py-4 text-left transition hover:bg-slate-50 dark:!border-slate-700 dark:!bg-slate-800/40 dark:!text-slate-100 dark:hover:!border-slate-500 dark:hover:!bg-slate-700/60 dark:hover:!text-slate-100"
                       >
-                        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-slate-300 bg-slate-100/90 text-xs font-black text-slate-800 backdrop-blur-sm">
+                        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-slate-300 bg-slate-100/90 text-xs font-black text-slate-800 backdrop-blur-sm dark:!border-slate-300 dark:!bg-white dark:!text-slate-900">
                           {index + 1}
                         </div>
 
-                        <div className="flex-1 text-sm font-black text-slate-900">
+                        <div className="flex-1 text-sm font-black text-slate-900 dark:!text-slate-100">
                           {artefact.name}
                         </div>
 
                         {isOpen ? (
-                          <ChevronDown className="h-4 w-4 text-slate-400" />
+                          <ChevronDown className="h-4 w-4 text-slate-400 dark:!text-slate-300" />
                         ) : (
-                          <ChevronRight className="h-4 w-4 text-slate-400" />
+                          <ChevronRight className="h-4 w-4 text-slate-400 dark:!text-slate-300" />
                         )}
                       </button>
 
@@ -8872,37 +8940,37 @@ function ReportPage({ state, onNavigate }: { state: AppState; onNavigate: (page:
               <div className="text-xs font-black uppercase tracking-[0.3em] text-purple-500">
                 Part 2 · Testing results
               </div>
-              <h2 className="mt-2 text-2xl font-black text-slate-950 lg:text-3xl">
+              <h2 className="mt-2 text-2xl font-black text-slate-950 dark:!text-white lg:text-3xl">
                 What we learned from users
               </h2>
-              <p className="mt-2 max-w-3xl text-sm leading-7 text-slate-500">
+              <p className="mt-2 max-w-3xl text-sm leading-7 text-slate-500 dark:!text-slate-300">
                 A focused evidence section for Day 4 validation, showing what users understood, where they struggled, and what the team should do next.
               </p>
             </div>
           </div>
 
-          <Panel className="overflow-hidden border-purple-100 bg-gradient-to-br from-purple-50 via-white to-white p-6 shadow-sm print:break-inside-avoid">
+          <Panel className="overflow-hidden border-purple-100 bg-gradient-to-br from-purple-50 via-white to-white p-6 shadow-sm print:break-inside-avoid dark:!border-slate-700/60 dark:!bg-none dark:!bg-slate-800/70 dark:!text-slate-100 dark:!shadow-xl dark:!shadow-slate-950/20">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
             <div>
               <div className="text-xs font-black uppercase tracking-[0.3em] text-purple-500">
                 Day 4 validation
               </div>
-              <h2 className="mt-3 text-2xl font-black text-slate-950 lg:text-3xl">
+              <h2 className="mt-3 text-2xl font-black text-slate-950 dark:!text-white lg:text-3xl">
                 User testing session evidence
               </h2>
-              <p className="mt-3 max-w-3xl text-sm leading-7 text-slate-600">
+              <p className="mt-3 max-w-3xl text-sm leading-7 text-slate-600 dark:!text-slate-300">
                 Structured evidence captured during user testing, combining Likert scores with quotes,
                 observed behaviours, friction points, positive signals, and session recommendations.
               </p>
             </div>
 
-            <div className="rounded-3xl border border-purple-100 bg-white px-6 py-5 shadow-sm">
-              <div className="text-xs font-black uppercase tracking-wide text-slate-400">
+            <div className="rounded-3xl border border-purple-100 bg-white px-6 py-5 shadow-sm dark:!border-slate-700/60 dark:!bg-slate-900/80 dark:!text-slate-100">
+              <div className="text-xs font-black uppercase tracking-wide text-slate-400 dark:!text-slate-300">
                 Average validation score
               </div>
-              <div className="mt-2 text-5xl font-black text-purple-600">
+              <div className="mt-2 text-5xl font-black text-purple-600 dark:!text-purple-300">
                 {averageTestingScore}
-                <span className="text-2xl text-slate-950">/5</span>
+                <span className="text-2xl text-slate-950 dark:!text-slate-100">/5</span>
               </div>
             </div>
           </div>
@@ -8919,49 +8987,49 @@ function ReportPage({ state, onNavigate }: { state: AppState; onNavigate: (page:
                   <section
                     key={session.key}
                     className={cx(
-                      "flex w-[380px] flex-shrink-0 flex-col rounded-3xl border border-purple-100 bg-white p-5 shadow-sm",
+                      "flex w-[380px] flex-shrink-0 flex-col rounded-3xl border border-purple-100 bg-white p-5 shadow-sm dark:!border-slate-700/60 dark:!bg-slate-900/80 dark:!text-slate-100",
                       isTestingSessionOpen ? "h-auto" : "h-[620px]",
                     )}
                   >
                     <div className="flex items-start justify-between gap-4">
                       <div>
-                        <div className="inline-flex rounded-full bg-purple-100 px-3 py-1 text-[11px] font-black uppercase tracking-wide text-purple-700">
+                        <div className="inline-flex rounded-full border border-purple-200 bg-purple-100 px-3 py-1 text-[11px] font-black uppercase tracking-wide text-purple-700 dark:!border-purple-200 dark:!bg-purple-100 dark:!text-purple-700">
                           Participant {index + 1}
                         </div>
 
-                        <h3 className="mt-2 text-xl font-black text-slate-950">
+                        <h3 className="mt-2 text-xl font-black text-slate-950 dark:!text-white">
                           {session.participant}
                         </h3>
-                        {session.role ? <p className="mt-1 text-sm text-slate-500">{session.role}</p> : null}
+                        {session.role ? <p className="mt-1 text-sm text-slate-500 dark:!text-slate-300">{session.role}</p> : null}
                       </div>
 
-                      <div className="rounded-2xl bg-purple-100 px-3 py-2 text-sm font-black text-purple-700">
+                      <div className="rounded-2xl border border-purple-200 bg-purple-100 px-3 py-2 text-sm font-black text-purple-700 dark:!border-purple-200 dark:!bg-purple-100 dark:!text-purple-700">
                         {sessionAverage}/5
                       </div>
                     </div>
 
                     <div className="mt-5 grid grid-cols-2 gap-3 text-center">
-                      <div className="rounded-2xl bg-purple-50 p-3">
-                        <div className="text-[11px] font-bold uppercase tracking-wide text-purple-500">Clarity</div>
-                        <div className="mt-1 text-2xl font-black text-purple-700">{session.clarity}</div>
+                      <div className="rounded-2xl bg-purple-50 p-3 dark:!bg-slate-800/80 dark:!text-slate-100">
+                        <div className="text-[11px] font-bold uppercase tracking-wide text-purple-500 dark:!text-purple-300">Clarity</div>
+                        <div className="mt-1 text-2xl font-black text-purple-700 dark:!text-purple-300">{session.clarity}</div>
                       </div>
-                      <div className="rounded-2xl bg-purple-50 p-3">
-                        <div className="text-[11px] font-bold uppercase tracking-wide text-purple-500">Useful</div>
-                        <div className="mt-1 text-2xl font-black text-purple-700">{session.usefulness}</div>
+                      <div className="rounded-2xl bg-purple-50 p-3 dark:!bg-slate-800/80 dark:!text-slate-100">
+                        <div className="text-[11px] font-bold uppercase tracking-wide text-purple-500 dark:!text-purple-300">Useful</div>
+                        <div className="mt-1 text-2xl font-black text-purple-700 dark:!text-purple-300">{session.usefulness}</div>
                       </div>
-                      <div className="rounded-2xl bg-purple-50 p-3">
-                        <div className="text-[11px] font-bold uppercase tracking-wide text-purple-500">Confidence</div>
-                        <div className="mt-1 text-2xl font-black text-purple-700">{session.confidence}</div>
+                      <div className="rounded-2xl bg-purple-50 p-3 dark:!bg-slate-800/80 dark:!text-slate-100">
+                        <div className="text-[11px] font-bold uppercase tracking-wide text-purple-500 dark:!text-purple-300">Confidence</div>
+                        <div className="mt-1 text-2xl font-black text-purple-700 dark:!text-purple-300">{session.confidence}</div>
                       </div>
-                      <div className="rounded-2xl bg-purple-50 p-3">
-                        <div className="text-[11px] font-bold uppercase tracking-wide text-purple-500">Completion</div>
-                        <div className="mt-1 text-2xl font-black text-purple-700">{session.completion}</div>
+                      <div className="rounded-2xl bg-purple-50 p-3 dark:!bg-slate-800/80 dark:!text-slate-100">
+                        <div className="text-[11px] font-bold uppercase tracking-wide text-purple-500 dark:!text-purple-300">Completion</div>
+                        <div className="mt-1 text-2xl font-black text-purple-700 dark:!text-purple-300">{session.completion}</div>
                       </div>
                     </div>
 
                     <div className="mt-5 flex flex-1 flex-col">
                       {session.quote ? (
-                        <div className="flex min-h-[230px] flex-col rounded-2xl border bg-slate-50 p-4">
+                        <div className="flex min-h-[230px] flex-col rounded-2xl border bg-slate-50 p-4 dark:!border-slate-700 dark:!bg-slate-800/80 dark:!text-slate-100">
                           <div className="text-xs font-black uppercase tracking-wide text-slate-500">Key quote</div>
                           <div className="mt-2">
                           <FormattedArtefactText text={session.quote} />
@@ -9015,10 +9083,25 @@ function ReportPage({ state, onNavigate }: { state: AppState; onNavigate: (page:
                           ) : null}
 
                           {session.recommendation ? (
-                            <div className="pt-8 rounded-2xl border border-purple-200 bg-purple-50 p-6">
-                              <div className="pb-4 text-xs font-black uppercase tracking-wide text-purple-700">Session recommendation</div>
+                            <div
+                              className={cx(
+                                "rounded-2xl border p-6 pt-8",
+                                isDarkReportTheme
+                                  ? "border-slate-700 bg-slate-950 text-slate-100"
+                                  : "border-purple-200 bg-purple-50 text-slate-900",
+                              )}
+                            >
+                              <div
+                                className={cx(
+                                  "pb-4 text-xs font-black uppercase tracking-wide",
+                                  isDarkReportTheme ? "text-purple-300" : "text-purple-700",
+                                )}
+                              >
+                                Session recommendation
+                              </div>
+
                               <div className="mt-2">
-                              <SessionRecommendationText text={session.recommendation} />
+                                <SessionRecommendationText text={session.recommendation} />
                               </div>
                             </div>
                           ) : null}
@@ -9142,6 +9225,17 @@ export default function DesignSprintFacilitatorApp() {
   const isSharedReportView =
   typeof window !== "undefined" &&
   window.location.pathname.startsWith("/report/");
+  
+  const isReportView = page === "report" || isSharedReportView;
+
+  const sharedReportTheme =
+  typeof window !== "undefined"
+    ? new URLSearchParams(window.location.search).get("theme")
+    : null;
+
+  const shouldUseDarkShell = isSharedReportView
+    ? sharedReportTheme === "dark"
+    : isDarkTheme;
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -9257,8 +9351,7 @@ export default function DesignSprintFacilitatorApp() {
   useEffect(() => {
     if (!hasLoadedSavedSession || !activeSessionId) return;
 
-    // Participant mode is a read-only display surface. Only facilitator mode should write sprint state.
-    if (!facilitatorMode) return;
+    // Always save local state changes; participant pages should already prevent edits.
 
     const stateSignature = JSON.stringify(state);
     if (lastRealtimeStateRef.current === stateSignature) {
@@ -9386,15 +9479,18 @@ export default function DesignSprintFacilitatorApp() {
     if (DAY_IDS.includes(nextPage as DayId)) dispatch({ type: "nav/setDay", dayId: nextPage as DayId });
   };
 
-  return (
-    <div className={cx(
-      "min-h-screen font-sans transition-colors duration-300",
-      isDarkTheme
-        ? "dark app-dark-ui bg-[#020617] text-slate-100"
-        : "bg-slate-50 text-slate-950"
-    )}
-      style={{ fontFamily: "Roboto, Arial, Helvetica, sans-serif" }}
-      >
+return (
+    <div
+      className={cx(
+        "min-h-screen font-sans transition-colors duration-300",
+        shouldUseDarkShell
+          ? "dark app-dark-ui bg-[#020617] text-slate-100"
+          : "bg-slate-50 text-slate-950"
+      )}
+      style={{
+        fontFamily: "Roboto, Arial, Helvetica, sans-serif",
+      }}
+    >
       <a
         href="#main"
         className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-50 focus:rounded-lg focus:bg-white focus:px-4 focus:py-2 focus:shadow"
@@ -9405,12 +9501,12 @@ export default function DesignSprintFacilitatorApp() {
      {isDarkTheme ? (
         <style jsx global>{`
           .app-dark-ui .bg-white,
-          .app-dark-ui .bg-slate-50,
           .app-dark-ui .bg-slate-100,
           .app-dark-ui .bg-slate-200 {
             background-color: rgb(30 41 59 / 0.96) !important;
             color: rgb(248 250 252) !important;
           }
+
 
           .app-dark-ui .border-slate-100,
           .app-dark-ui .border-slate-200,
@@ -9659,7 +9755,13 @@ export default function DesignSprintFacilitatorApp() {
       setIsDarkTheme={setIsDarkTheme}
     /> : null}
 
-      <div id="main" className="transition-colors duration-300">
+      <div
+        id="main"
+        className={cx(
+          "transition-colors duration-300",
+          isReportView ? "min-h-screen bg-slate-50 dark:!bg-[#020617]" : undefined,
+        )}
+      >
         {page === "dashboard" ? (
           <Dashboard
             state={state}
