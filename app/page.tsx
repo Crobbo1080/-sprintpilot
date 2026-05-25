@@ -4480,12 +4480,11 @@ function DayPage({
         </div>
         <div className="flex w-full flex-col items-start gap-3 md:w-auto md:items-end">
           {facilitatorMode ? (
-            <div className="flex items-center gap-3 rounded-full border border-slate-200/70 bg-white/70 px-2 py-2 shadow-sm backdrop-blur">
-              <span className="pl-3 text-xs font-black uppercase tracking-wide text-slate-500">
+            <div className="flex items-center gap-3 rounded-full border border-slate-200/70 bg-white/70 px-2 py-2 shadow-sm backdrop-blur dark:!border-white/10 dark:!bg-slate-900/80">
+              <span className="pl-3 text-xs font-black uppercase tracking-wide text-slate-500 dark:!text-slate-300">
                 Guidance
               </span>
-
-              <div className="inline-flex rounded-full bg-slate-100/80 p-1">
+              <div className="inline-flex rounded-full bg-slate-100/80 p-1 dark:!bg-slate-800/80">
                 {(["beginner", "standard", "expert"] as GuidanceLevel[]).map((level) => (
                   <button
                     key={level}
@@ -4494,8 +4493,8 @@ function DayPage({
                     className={cx(
                       "rounded-full px-4 py-2 text-sm font-black capitalize transition",
                       guidanceLevel === level
-                        ? "bg-slate-950 text-white shadow-sm"
-                        : "text-slate-500 hover:text-slate-950",
+                        ? "bg-slate-950 text-white shadow-sm dark:!bg-white dark:!text-slate-950"
+                        : "text-slate-500 hover:text-slate-950 dark:!text-slate-300 dark:hover:!text-white",
                     )}
                   >
                     {level}
@@ -8354,10 +8353,6 @@ function ReportPage({ state, onNavigate }: { state: AppState; onNavigate: (page:
               <span className="font-semibold">Notes saved</span>
               <span>{notesCount}</span>
             </div>
-            <div className="flex items-center justify-between">
-              <span className="font-semibold">HMWs saved</span>
-              <span>{state.hmws.length}</span>
-            </div>
           </div>
         </Panel>
       </div>
@@ -8587,18 +8582,18 @@ function ReportPage({ state, onNavigate }: { state: AppState; onNavigate: (page:
               </p>
             </div>
 
-          <div className="mt-5 flex flex-wrap gap-3">
+<div className="mt-5 flex flex-wrap gap-3">
   {[
-    { label: "Photos", value: photoArtefacts.length },
-    { label: "Insights", value: insightArtefacts.length },
-    { label: "Opportunities", value: opportunityArtefacts.length },
-    { label: "Decisions", value: decisionArtefacts.length },
-    { label: "Risks", value: riskArtefacts.length },
-    { label: "Recommendations", value: recommendationArtefacts.length },
+    { label: "Photos", value: photoArtefacts.length, href: "#sprint-evidence" },
+    { label: "Insights", value: insightArtefacts.length, href: "#outcomes-evidence" },
+    { label: "Opportunities", value: opportunityArtefacts.length, href: "#outcomes-evidence" },
+    { label: "Decisions", value: decisionArtefacts.length, href: "#outcomes-evidence" },
+    { label: "Risks", value: riskArtefacts.length, href: "#outcomes-evidence" },
+    { label: "Recommendations", value: recommendationArtefacts.length, href: "#outcomes-evidence" },
   ].map((item) => (
     <a
       key={item.label}
-      href="#sprint-evidence"
+      href={item.href}
       className={cx(
         "rounded-full border px-4 py-2 text-sm font-black transition",
         isDarkReportTheme
@@ -9200,7 +9195,7 @@ function ReportPage({ state, onNavigate }: { state: AppState; onNavigate: (page:
       ) : null}
 
       {/* Synthesised sprint themes section */}
-      <div className="mt-15">
+      <div id="outcomes-evidence" className="mt-15 scroll-mt-44">
         <div className="mb-4 flex items-end justify-between gap-4">
           <div>
             <div className="text-xs font-black uppercase tracking-[0.3em] text-slate-400">
@@ -9214,6 +9209,43 @@ function ReportPage({ state, onNavigate }: { state: AppState; onNavigate: (page:
             </p>
           </div>
         </div>
+
+        <Panel className="mb-6 p-6 print:break-inside-avoid">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <div className="text-xs font-black uppercase tracking-[0.3em] text-purple-500">
+                User testing analysis
+              </div>
+              <h2 className="mt-2 text-xl font-black text-slate-950 dark:!text-white">
+                Summary of validation findings
+              </h2>
+            </div>
+          </div>
+
+          <div className="mt-4 text-sm leading-7 text-slate-600 dark:!text-slate-300">
+            {(() => {
+              const resultsAnalysisActivity = sprintDays
+                .find((day) => day.id === "day4")
+                ?.activities.find((activity) => activity.title === "Results Analysis");
+              const resultsAnalysisKey = resultsAnalysisActivity
+                ? activityKey("day4", resultsAnalysisActivity.id)
+                : "";
+              const resultsAnalysisText = resultsAnalysisKey
+                ? state.notes[resultsAnalysisKey]?.trim()
+                : "";
+
+              return resultsAnalysisText ? (
+                <div className="whitespace-pre-wrap">
+                  {resultsAnalysisText}
+                </div>
+              ) : (
+                <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-4 text-sm font-semibold text-slate-500 dark:!border-slate-600 dark:!bg-slate-800/70 dark:!text-slate-300">
+                  Add analysis notes in Day 4 · Results Analysis to populate this section.
+                </div>
+              );
+            })()}
+          </div>
+        </Panel>
 
         <Panel className="p-6 print:break-inside-avoid">
         <div className="flex items-start justify-between gap-4">
