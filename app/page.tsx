@@ -4884,7 +4884,7 @@ function TestingSessionEvidenceCard({
   );
 
   return (
-    <div className="mt-6 rounded-[1.5rem] border border-purple-200 bg-purple-50/70 p-5">
+    <div className="mt-6 rounded-[1.5rem] border border-purple-200 bg-purple-50/70 p-5 dark:!border-white/10 dark:!bg-slate-950">
       <div>
         <div className="text-xs font-black uppercase tracking-wide text-purple-700">Testing evidence</div>
         <h3 className="mt-1 text-lg font-black text-slate-950">{sessionLabel}</h3>
