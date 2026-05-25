@@ -4521,7 +4521,7 @@ function DayPage({
               onClick={() => setTab(t)}
               className={cx(
                 "rounded-xl py-2 text-sm font-black capitalize text-slate-700",
-                tab === t && "bg-white text-slate-950 shadow-sm",
+                tab === t && "bg-slate-50 text-slate-950 shadow-sm",
               )}
             >
               {t === "guide" ? day.guideLabel.replace(" Guide", "") : t}
