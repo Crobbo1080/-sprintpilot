@@ -7442,6 +7442,37 @@ function PrintReport({ state }: { state: AppState }) {
     [allArtefacts],
   );
 
+  const orderedArtefactGroups = useMemo(() => {
+    const getOrderIndex = (key: string) => {
+      for (let dayIndex = 0; dayIndex < sprintDays.length; dayIndex += 1) {
+        const day = sprintDays[dayIndex];
+
+        for (let activityIndex = 0; activityIndex < day.activities.length; activityIndex += 1) {
+          const activity = day.activities[activityIndex];
+
+          if (activityKey(day.id, activity.id) === key) {
+            return dayIndex * 100 + activityIndex;
+          }
+        }
+      }
+
+      return Number.MAX_SAFE_INTEGER;
+    };
+
+    return Object.entries(state.artefacts)
+      .map(([key, artefacts]) => ({
+        key,
+        artefacts: [...artefacts].sort((a, b) => a.createdAt - b.createdAt),
+        context: getDayAndActivityFromKey(key),
+        orderIndex: getOrderIndex(key),
+      }))
+      .filter((group) => group.artefacts.length > 0)
+      .sort((a, b) => {
+        if (a.orderIndex !== b.orderIndex) return a.orderIndex - b.orderIndex;
+        return a.key.localeCompare(b.key);
+      });
+  }, [state.artefacts]);
+
   const testingSessions = Object.entries(state.testingSessions ?? {})
     .map(([key, session]) => {
       const activity = getDayAndActivityFromKey(key);
@@ -7501,6 +7532,17 @@ function PrintReport({ state }: { state: AppState }) {
             10,
         ) / 10
       : 0;
+
+  const resultsAnalysisText = useMemo(() => {
+    const resultsAnalysisActivity = sprintDays
+      .find((day) => day.id === "day4")
+      ?.activities.find((activity) => activity.title === "Results Analysis");
+
+    if (!resultsAnalysisActivity) return "";
+
+    const resultsAnalysisKey = activityKey("day4", resultsAnalysisActivity.id);
+    return state.notes[resultsAnalysisKey]?.trim() ?? "";
+  }, [state.notes]);
 
       const summariseForPrint = (text: string, maxLength = 180) => {
         const cleanBlockquoteMarkers = (value: string) =>
@@ -7738,7 +7780,7 @@ function PrintReport({ state }: { state: AppState }) {
                       session.behaviour ||
                       "No written insight summary was captured.";
 
-                      const keyInsightSummary = session.friction
+                    const keyInsightSummary = session.friction
                       ? `The session highlighted friction around ${session.friction}`
                       : session.positive
                         ? `The strongest positive signal was that ${session.positive}`
@@ -7791,6 +7833,24 @@ function PrintReport({ state }: { state: AppState }) {
             </div>
           </section>
         ) : null}
+
+        <section className="print-page-break print-avoid-break">
+          <p className="print-section-label text-xs font-black uppercase tracking-[0.3em] text-slate-500">
+            Outcomes & evidence
+          </p>
+          <h2 className="mt-2 text-3xl font-black tracking-tight">Summary of validation findings</h2>
+
+          {resultsAnalysisText ? (
+            <div className="mt-5 whitespace-pre-wrap text-[15px] leading-8 text-slate-700 print:text-[10.5pt] print:leading-7">
+              {resultsAnalysisText}
+            </div>
+          ) : (
+            <p className="mt-4 rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-4 text-sm font-semibold text-slate-500">
+              No Day 4 Results Analysis notes were captured for this report.
+            </p>
+          )}
+        </section>
+
         <section className="print-page-break">
           <p className="print-section-label text-xs font-black uppercase tracking-[0.3em] text-slate-500">Recommended next steps</p>
           <h2 className="mt-2 text-3xl font-black tracking-tight">Priority action plan</h2>
@@ -7841,23 +7901,67 @@ function PrintReport({ state }: { state: AppState }) {
             </div>
           </div>
 
-          {photoArtefacts.length > 0 ? (
-            <div className="mt-6 grid gap-4 md:grid-cols-2 print:grid-cols-2">
-              {photoArtefacts.slice(0, 12).map((artefact) => (
-                <figure key={artefact.id} className="print-avoid-break overflow-hidden rounded-2xl border border-slate-200">
-                  {artefact.dataUrl || artefact.publicUrl ? (
-                    <img
-                        src={getArtefactImageSrc(artefact)}
-                        alt={artefact.caption || artefact.name}
-                        className="h-48 w-full object-cover print:h-36"
-                      />
-                  ) : null}
-                  <figcaption className="p-3 text-sm leading-6 text-slate-600">
-                    <span className="font-black text-slate-900">{artefact.name}</span>
-                    {artefact.caption ? ` — ${artefact.caption}` : ""}
-                  </figcaption>
-                </figure>
-              ))}
+          {orderedArtefactGroups.length > 0 ? (
+            <div className="mt-6 space-y-6">
+              {orderedArtefactGroups.map((group) => {
+                const photoGroupArtefacts = group.artefacts.filter((artefact) => artefact.type === "photo");
+                const noteGroupArtefacts = group.artefacts.filter((artefact) => artefact.type === "note");
+
+                return (
+                  <section key={group.key} className="print-avoid-break rounded-2xl border border-slate-200 p-4">
+                    <div className="flex items-start justify-between gap-4 border-b border-slate-200 pb-3">
+                      <div>
+                        <h3 className="font-black text-slate-950">
+                          {group.context
+                            ? `${group.context.day.label}: ${group.context.activity.title}`
+                            : group.key}
+                        </h3>
+                        <p className="mt-1 text-xs leading-5 text-slate-500">
+                          {group.context?.activity.deliverable ?? "Captured sprint evidence"}
+                        </p>
+                      </div>
+                      <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-600">
+                        {group.artefacts.length} item{group.artefacts.length === 1 ? "" : "s"}
+                      </span>
+                    </div>
+
+                    {photoGroupArtefacts.length > 0 ? (
+                      <div className="mt-4 grid gap-4 md:grid-cols-2 print:grid-cols-2">
+                        {photoGroupArtefacts.map((artefact) => {
+                          const imageSrc = getArtefactImageSrc(artefact);
+
+                          return (
+                            <figure key={artefact.id} className="overflow-hidden rounded-2xl border border-slate-200">
+                              {imageSrc ? (
+                                <img
+                                  src={imageSrc}
+                                  alt={artefact.caption || artefact.name}
+                                  className="h-48 w-full object-cover print:h-36"
+                                />
+                              ) : null}
+                              <figcaption className="p-3 text-sm leading-6 text-slate-600">
+                                <span className="font-black text-slate-900">{artefact.name}</span>
+                                {artefact.caption ? ` — ${artefact.caption}` : ""}
+                              </figcaption>
+                            </figure>
+                          );
+                        })}
+                      </div>
+                    ) : null}
+
+                    {noteGroupArtefacts.length > 0 ? (
+                      <div className="mt-4 grid gap-3 md:grid-cols-2 print:grid-cols-2">
+                        {noteGroupArtefacts.map((artefact) => (
+                          <article key={artefact.id} className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm leading-6 text-slate-600">
+                            <div className="font-black text-slate-900">{artefact.name}</div>
+                            <div className="mt-1 whitespace-pre-wrap">{artefact.caption || "No details added."}</div>
+                          </article>
+                        ))}
+                      </div>
+                    ) : null}
+                  </section>
+                );
+              })}
             </div>
           ) : null}
         </section>
@@ -7951,9 +8055,35 @@ function ReportPage({ state, onNavigate }: { state: AppState; onNavigate: (page:
   const notesCount = useMemo(() => Object.values(state.notes).filter((v) => v.trim().length > 0).length, [state.notes]);
 
   const artefactsByActivity = useMemo(() => {
+    const getOrderIndex = (key: string) => {
+      for (let dayIndex = 0; dayIndex < sprintDays.length; dayIndex += 1) {
+        const day = sprintDays[dayIndex];
+
+        for (let activityIndex = 0; activityIndex < day.activities.length; activityIndex += 1) {
+          const activity = day.activities[activityIndex];
+
+          if (activityKey(day.id, activity.id) === key) {
+            return dayIndex * 100 + activityIndex;
+          }
+        }
+      }
+
+      return Number.MAX_SAFE_INTEGER;
+    };
+
     return Object.entries(state.artefacts)
-      .map(([key, artefacts]) => ({ key, artefacts, context: getDayAndActivityFromKey(key) }))
-      .filter((group) => group.artefacts.length > 0);
+      .map(([key, artefacts]) => ({
+        key,
+        artefacts: [...artefacts].sort((a, b) => a.createdAt - b.createdAt),
+        context: getDayAndActivityFromKey(key),
+        orderIndex: getOrderIndex(key),
+      }))
+      .filter((group) => group.artefacts.length > 0)
+      .sort((a, b) => {
+        if (a.orderIndex !== b.orderIndex) return a.orderIndex - b.orderIndex;
+        return a.key.localeCompare(b.key);
+      })
+      .map(({ orderIndex, ...group }) => group);
   }, [state.artefacts]);
 
   // --- Synthesised report values ---
